@@ -1,0 +1,141 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in a cTrader skill
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the form below to help us investigate.
+
+        **Before submitting, please note:** A clear description and reproduction steps are the most helpful things you can provide. If you have done genuine investigation and have a non-obvious insight into the root cause, include it. But please do not speculate or include LLM-generated diagnoses -- an incorrect analysis is harder to work with than none at all.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Pre-submission Checks
+      options:
+        - label: I am using the latest version of ctrader-skills
+          required: true
+        - label: I searched existing issues and found no duplicates
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: >-
+        Describe the bug clearly. Include what happened and what you expected to happen instead.
+      placeholder: |
+        What happened:
+        ...
+
+        What I expected:
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: >-
+        Provide the minimal steps needed to reproduce this bug. Include the exact prompt, tool call, or command used if applicable.
+      placeholder: |
+        1. Install skill via ...
+        2. Ask the agent to ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-skill
+    attributes:
+      label: Affected Skill
+      description: Which skill exhibits the bug?
+      multiple: true
+      options:
+        - ctrader-mcp-servers
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ctrader-mcp-server
+    attributes:
+      label: cTrader MCP Server
+      description: Which MCP server is involved (if applicable)?
+      multiple: true
+      options:
+        - Local HTTP (ctrader-local-mcp)
+        - Remote HTTP (ctrader-remote-mcp)
+        - Both
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: server-build
+    attributes:
+      label: Server Build
+      description: >-
+        For Remote: the `rest-proxy` build (e.g., `rest-proxy 1.0.18`). For Local: the cTrader Desktop build/version. Leave blank if not applicable.
+      placeholder: "e.g., rest-proxy 1.0.18"
+
+  - type: dropdown
+    id: ai-agent
+    attributes:
+      label: AI Agent
+      description: Which agent / coding tool were you using?
+      multiple: true
+      options:
+        - Claude Code
+        - Cursor
+        - Windsurf
+        - Codex
+        - Cline
+        - OpenCode
+        - Deep Agents CLI
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Skill Installation Method
+      options:
+        - npx skills add (Vercel utility)
+        - /plugin install (Claude Code marketplace)
+        - ./install.sh
+        - Manual copy
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Error Output
+      description: >-
+        Paste any error messages, tracebacks, or relevant log output. This will be automatically
+        formatted as a code block.
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: >-
+        Add any other context about the problem here. Screenshots, configuration files, or environment details may be helpful.

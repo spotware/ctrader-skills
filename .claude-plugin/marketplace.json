@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/.claude-plugin/marketplace-schema.json",
+  "name": "ctrader-skills",
+  "owner": {
+    "name": "Spotware Systems Ltd",
+    "email": "support@ctrader.com"
+  },
+  "description": "Agent skills for the cTrader ecosystem by Spotware",
+  "metadata": {
+    "description": "Agent skills for the cTrader ecosystem by Spotware"
+  },
+  "plugins": [
+    {
+      "name": "ctrader-skills",
+      "source": "./",
+      "description": "Agent skills for the cTrader ecosystem by Spotware",
+      "homepage": "https://github.com/spotware/ctrader-skills",
+      "license": "LicenseRef-Spotware-EULA",
+      "keywords": [
+        "ctrader",
+        "trading",
+        "forex",
+        "agent-skills",
+        "skills",
+        "spotware",
+        "ai-agents"
+      ],
+      "category": "developer-tools"
+    }
+  ]
+}

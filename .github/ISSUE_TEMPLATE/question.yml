@@ -1,0 +1,51 @@
+name: Question
+description: Ask a question about cTrader Skills
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before asking, you may find your answer in the existing documentation:
+
+        - [README](https://github.com/spotware/ctrader-skills#readme) -- Overview and installation
+        - [CONTRIBUTING](https://github.com/spotware/ctrader-skills/blob/main/CONTRIBUTING.md) -- Skill authoring guide
+        - [cTrader Help Centre](https://help.ctrader.com/) -- cTrader platform reference
+
+        Questions about the **cTrader platform itself** (charts, accounts, broker behavior) should go to the [cTrader Help Centre](https://help.ctrader.com/), not this issue tracker.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Describe your question in detail. Include what you are trying to achieve and any relevant context.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic Area
+      description: What area does your question relate to?
+      options:
+        - Installation / Setup
+        - Skill usage with a specific AI agent
+        - cTrader MCP server semantics
+        - Quirks ledger
+        - Self-healing playbook
+        - Scripts (pip math, position sizing, conversion rate, tiered margin, units encoding)
+        - Contributing / adding a new skill
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What I've Tried
+      description: Describe what you have already tried or investigated. This helps avoid suggesting things you already know.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context, code snippets, or configuration details that may help answer your question.

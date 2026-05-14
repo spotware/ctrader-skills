@@ -1,0 +1,63 @@
+repos:
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.14.10
+  hooks:
+    - id: ruff-check
+      name: Ruff (lint + autofix)
+      description: Fast Python linter (Flake8, isort, quotes, etc.) with --fix enabled
+      args: [--fix, .]
+      pass_filenames: false
+
+- repo: local
+  hooks:
+    - id: mypy
+      name: Mypy (uv)
+      language: system
+      entry: uv
+      args: ['run', '--frozen', '--group', 'dev', '--', 'mypy', '--config-file=pyproject.toml']
+      types_or: [python, pyi]
+      pass_filenames: false
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+    - id: check-json
+      name: Check JSON
+      description: Verify JSON syntax
+
+    - id: check-yaml
+      name: Check YAML
+      description: Verify YAML syntax
+      exclude: ^deploy/helm/.*/templates/
+
+    - id: end-of-file-fixer
+      name: End-of-file fixer (non-Python)
+      description: Ensures every *non-Python* file is empty or ends with a single newline
+      exclude: ^.*\.(json|pyi?|py)$
+
+    - id: trailing-whitespace
+      name: Trailing-whitespace (non-Python)
+      description: Trims trailing whitespace in non-Python text files
+      exclude: ^.*\.(pyi?|py)$
+
+    - id: check-shebang-scripts-are-executable
+      name: Check shebang scripts
+      description: Check that text files with a shebang are executable
+
+- repo: https://github.com/DavidAnson/markdownlint-cli2
+  rev: v0.20.0
+  hooks:
+    - id: markdownlint-cli2
+      name: Markdown Lint
+      exclude: ^CHANGELOG\.md$
+
+- repo: https://github.com/astral-sh/uv-pre-commit
+  rev: 0.9.20
+  hooks:
+    - id: uv-lock
+      name: Make sure uv.lock file is up to date
+
+- repo: https://github.com/commitizen-tools/commitizen
+  rev: v4.11.0
+  hooks:
+    - id: commitizen

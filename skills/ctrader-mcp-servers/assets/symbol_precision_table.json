@@ -1,0 +1,168 @@
+{
+  "__note__": "BASELINE — always verify against `get_symbol_details` at session start. Source values reflect audit on 2026-05-13.",
+  "schema_version": "1.0",
+  "as_of": "2026-05-13",
+  "audit_method": "live calls on rest-proxy 1.0.13 + local build observed-on 2026-05-13",
+  "symbols": [
+    {
+      "symbol": "EURUSD",
+      "pipDigits": 5,
+      "pipettesPerUnit": 100000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "GBPUSD",
+      "pipDigits": 5,
+      "pipettesPerUnit": 100000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "USDJPY",
+      "pipDigits": 3,
+      "pipettesPerUnit": 1000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "AUDUSD",
+      "pipDigits": 5,
+      "pipettesPerUnit": 100000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "USDCAD",
+      "pipDigits": 5,
+      "pipettesPerUnit": 100000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "NZDUSD",
+      "pipDigits": 5,
+      "pipettesPerUnit": 100000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "USDCHF",
+      "pipDigits": 5,
+      "pipettesPerUnit": 100000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "EURJPY",
+      "pipDigits": 3,
+      "pipettesPerUnit": 1000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "GBPJPY",
+      "pipDigits": 3,
+      "pipettesPerUnit": 1000,
+      "lotSize_baseline": 100000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "XAUUSD",
+      "pipDigits": 3,
+      "pipettesPerUnit": 1000,
+      "lotSize_baseline": 100,
+      "source": "local",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "XAGUSD",
+      "pipDigits": 3,
+      "pipettesPerUnit": 1000,
+      "lotSize_baseline": 5000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "US30",
+      "pipDigits": 1,
+      "pipettesPerUnit": 10,
+      "lotSize_baseline": 1,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "US500",
+      "pipDigits": 1,
+      "pipettesPerUnit": 10,
+      "lotSize_baseline": 1,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "NAS100",
+      "pipDigits": 1,
+      "pipettesPerUnit": 10,
+      "lotSize_baseline": 1,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "GER40",
+      "pipDigits": 1,
+      "pipettesPerUnit": 10,
+      "lotSize_baseline": 1,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "UK100",
+      "pipDigits": 1,
+      "pipettesPerUnit": 10,
+      "lotSize_baseline": 1,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "USOIL",
+      "pipDigits": 2,
+      "pipettesPerUnit": 100,
+      "lotSize_baseline": 1000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "UKOIL",
+      "pipDigits": 2,
+      "pipettesPerUnit": 100,
+      "lotSize_baseline": 1000,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "BTCUSD",
+      "pipDigits": 2,
+      "pipettesPerUnit": 100,
+      "lotSize_baseline": 1,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    },
+    {
+      "symbol": "ETHUSD",
+      "pipDigits": 2,
+      "pipettesPerUnit": 100,
+      "lotSize_baseline": 1,
+      "source": "remote",
+      "as_of": "2026-05-13"
+    }
+  ]
+}
