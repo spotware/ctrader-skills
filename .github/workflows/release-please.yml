@@ -19,8 +19,8 @@ jobs:
     steps:
       - id: release
         # Pin to tagged release for supply-chain hardening.
-        # TODO: update when node24 version available (tracking: github.com/googleapis/release-please-action/issues/1162)
-        uses: googleapis/release-please-action@v4.4.4
+        # TODO: evaluate upgrade to v5.x (node24) once compatibility with release-please-config.json is verified (tracking: github.com/googleapis/release-please-action/issues/1162)
+        uses: googleapis/release-please-action@v4.4.1
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
