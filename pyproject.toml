@@ -1,6 +1,6 @@
 [project]
 name = "ctrader-skills"
-version = "0.0.0"
+version = "0.1.0"
 description = "cTrader skills for agents - analyze market opportunities and trade under control"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/.claude-plugin/plugin-schema.json",
   "name": "ctrader-skills",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Agent skills for the cTrader ecosystem by Spotware",
   "author": {
     "name": "Spotware Systems Ltd",
