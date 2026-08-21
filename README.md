@@ -95,8 +95,9 @@ After installation, run your coding agent from the directory where you installed
 
 The skills themselves do not require any API keys. For cTrader account setup, MCP server installation, and platform documentation, see the [cTrader Help Centre](<https://help.ctrader.com/>).
 
-## Available Skills (1)
+## Available Skills (2)
 
+- **ctrader-cli** -- Use whenever driving the cTrader CLI executable (`ctrader-cli.exe` on Windows, `ctrader-cli` on macOS and Linux) from a shell. Covers the batch and shell-routed invocation pipelines and how the choice changes payload casing and accepted flags, environment-variable credentials that keep secrets out of the command line, the exit-code and stream contract for reliable failure detection, the read-only command surface with its real field names, a guarded sequence for state-changing commands, and the cBot create-build-metadata-backtest loop. Includes a session preflight the agent runs before its first authenticated call, with the exact setup instructions to give a user whose CLI is not yet configured.
 - **ctrader-mcp-servers** -- Always use when working with any cTrader MCP server. Covers Local HTTP server semantics, Remote HTTP server semantics, units and encoding conventions, end-to-end trader workflows, the build-stamped runtime-behavior reference, and named operational patterns the agent applies on every call. Bundles five executable helper scripts (pip math, position sizing, conversion rate, tiered margin, units encoding) that the agent invokes for precision-critical calculations.
 
 ## License
