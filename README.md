@@ -103,19 +103,17 @@ The skills themselves do not require any API keys. For cTrader account setup, MC
 
 Each release is one commit on `main`, tagged `v<version>`, and `main` changes only at a release. [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
 
-## License
-
-This software is proprietary to Spotware Systems Ltd. and forms part of the cTrader platform. Use is governed by the [Spotware End User License Agreement](<https://www.spotware.com/eula/>).
-
-See [LICENSE](LICENSE) and [COPYRIGHT.md](COPYRIGHT.md) for full terms.
-
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how Spotware publishes this repository, how to report an issue, and how to propose a change. By participating, you agree to abide by the [Code of Conduct](CODE_OF_CONDUCT.md).
+Issues and pull requests are welcome as proposals. See [CONTRIBUTING.md](CONTRIBUTING.md) for how Spotware publishes this repository, how to report an issue, and how to propose a change. By participating, you agree to abide by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+These skills are proprietary to Spotware Systems Ltd and form part of the cTrader platform. The [Spotware End User License Agreement](<https://www.spotware.com/eula/>) governs their use. See [LICENSE](LICENSE) and [COPYRIGHT.md](COPYRIGHT.md) for the full terms.
 
 ## Security
 
-To report a security vulnerability, please follow the process in [SECURITY.md](SECURITY.md). Do **not** open a public GitHub issue for security reports.
+To report a security vulnerability, follow [SECURITY.md](SECURITY.md). Do not open a public issue for a security report.
 
 ---
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 (2026-11-25)
+
+
+### Changes
+
+* The README closes with the same sections, in the same order and wording, as the README of the cTrader plugin for AI agents: Releases, Contributing, License, Security.
+
 ## 0.2.0 (2026-11-25)
 
 
