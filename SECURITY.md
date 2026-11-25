@@ -13,15 +13,15 @@ We will acknowledge receipt within 5 business days and provide an estimated reme
 
 This security policy covers:
 
-- The contents of the [`spotware/ctrader-skills`](<https://github.com/spotware/ctrader-skills>) repository (skill manifests, references, scripts, configuration, CI workflows).
+- The contents of the [`spotware/ctrader-skills`](<https://github.com/spotware/ctrader-skills>) repository: the skills with their references, scripts and assets, the plugin manifests, and the install script.
 - The published Claude Code plugin and the `npx skills` package distribution that ship from this repository.
 
-Vulnerabilities in **cTrader platform components** -- including the Local HTTP MCP server, the Remote HTTP MCP server, the REST proxy, cTrader Desktop, cTrader iOS / Android apps, and the cTrader.com web platform -- are out of scope for this repository. Report those through the official cTrader support channel at [spotware.com](<https://www.spotware.com/>).
+Vulnerabilities in **cTrader platform components**, including the cTrader CLI, the Local HTTP MCP server, the Remote HTTP MCP server, the REST proxy, cTrader Desktop, the cTrader iOS and Android apps, and the cTrader.com web platform, are out of scope for this repository. Report those through the official cTrader support channel at [spotware.com](<https://www.spotware.com/>).
 
 ## Supported Versions
 
-Only the **latest released version** of `ctrader-skills`, as listed on the [GitHub Releases](<https://github.com/spotware/ctrader-skills/releases>) page, receives security updates.
+Only the **latest release** of `ctrader-skills`, the content of the `main` branch, receives security updates. [CHANGELOG.md](CHANGELOG.md) lists the releases.
 
 ## Disclosure Policy
 
-We follow coordinated disclosure. After a fix is available, we will work with the reporter to determine an appropriate public disclosure timeline -- typically 30 to 90 days. Credit will be given to reporters in the release notes unless they prefer anonymity.
+We follow coordinated disclosure. After a fix is available, we will work with the reporter to determine an appropriate public disclosure timeline, typically 30 to 90 days. We credit reporters in the changelog unless they prefer anonymity.

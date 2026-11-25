@@ -1,602 +1,689 @@
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.11"
 # ///
 
-"""Convert between pip distance and absolute price for cTrader Local and Remote server display-price encoding.
+"""Convert between pip distances and display prices, and express a distance in the units the order fields take.
 
-This script operates on DISPLAY prices throughout. When receiving pipettes from
-`get_spot_prices` / `get_trendbars` on the Remote server, decode via
-`units_encoding.py pipettes-to-price --pipettes <int> --pip-digits <int>` BEFORE
-passing prices to this script. See [Q-K19](../references/known-quirks.md#q-k19).
+Every price here is a display price, the number a trader reads, on both cTrader servers. The quotes of the Remote server
+are integers in 1/100000 of the price: convert them with ``units_encoding.py quote-to-price`` first.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 import json
-import math
 import sys
+from collections.abc import Callable
+from collections.abc import Mapping
+from contextlib import redirect_stderr
+from contextlib import redirect_stdout
+from decimal import ROUND_FLOOR
 from decimal import ROUND_HALF_UP
 from decimal import Decimal
+from decimal import InvalidOperation
 from decimal import getcontext
-from pathlib import Path
-from typing import Any
 from typing import NoReturn
+from typing import TypeAlias
 
 getcontext().prec = 28
 
 EXIT_OK = 0
 EXIT_INVALID_ARGS = 2
 EXIT_NUMERIC_ERROR = 3
-EXIT_LOGIC_ERROR = 4
 
-_SIDES = ('buy', 'sell')
-_DIRECTIONS = ('sl', 'tp')
+SIDES = ('buy', 'sell')
+DIRECTIONS = ('sl', 'tp')
 
-_ASSET_PATH = Path(__file__).parent.parent / 'assets' / 'symbol_precision_table.json'
+Answer: TypeAlias = dict[str, object]
+"""The object a subcommand prints."""
+
+SelfTestCase: TypeAlias = (
+    tuple[str, list[str], Mapping[str, object], int] | tuple[str, list[str], Mapping[str, object], int, Mapping[str, object]]
+)
+"""One case of the case table: label, arguments, expected values, exit code and, optionally, checks."""
+
+SELF_TEST_CASES: tuple[SelfTestCase, ...] = (
+    (
+        'pips-to-price takes decimal pips and shows a changed level: a sell stop 32.8 pips above 3588.25 rounds to 3588.58',
+        [
+            'pips-to-price', '--reference-price', '3588.25', '--pips', '32.8', '--pip-size', '0.01', '--digits', '2',
+            '--side', 'sell', '--direction', 'sl',
+        ],
+        {
+            'absolute_price': 3588.58,
+            'pip_size_used': 0.01,
+            'rounded_to_digits': 2,
+            'rounded': True,
+            'unrounded_price': 3588.578,
+        },
+        0,
+    ),
+    (
+        'pips-to-price prints no unrounded_price when rounding changes nothing: 30 pips above 158.837 is 159.137',
+        [
+            'pips-to-price', '--reference-price', '158.837', '--pips', '30', '--pip-size', '0.01', '--digits', '3',
+            '--side', 'buy', '--direction', 'tp',
+        ],
+        {'absolute_price': 159.137, 'rounded': False},
+        0,
+        {'absent': ['unrounded_price']},
+    ),
+    (
+        'pips-to-price places a buy stop below the reference: 30 pips below 1.085 at pip size 0.0001 is 1.082',
+        [
+            'pips-to-price', '--reference-price', '1.0850', '--pips', '30', '--pip-size', '0.0001', '--digits', '5',
+            '--side', 'buy', '--direction', 'sl',
+        ],
+        {'absolute_price': 1.082, 'rounded': False},
+        0,
+    ),
+    (
+        'pips-to-price places a sell take profit below the reference: 50 pips below 150.3 at pip size 0.01 is 149.8',
+        [
+            'pips-to-price', '--reference-price', '150.3', '--pips', '50', '--pip-size', '0.01', '--digits', '3',
+            '--side', 'sell', '--direction', 'tp',
+        ],
+        {'absolute_price': 149.8, 'rounded': False},
+        0,
+    ),
+    (
+        'pips-to-price defaults to a buy take profit',
+        ['pips-to-price', '--reference-price', '1.0850', '--pips', '30', '--pip-size', '0.0001', '--digits', '5'],
+        {'absolute_price': 1.088},
+        0,
+    ),
+    (
+        'pips-to-price refuses a pip size that is not above 0',
+        ['pips-to-price', '--reference-price', '1.0850', '--pips', '30', '--pip-size', '0', '--digits', '5'],
+        {'error': '--pip-size must be above 0, got 0'},
+        3,
+    ),
+    (
+        'pips-to-price refuses negative digits',
+        ['pips-to-price', '--reference-price', '1.0850', '--pips', '30', '--pip-size', '0.0001', '--digits', '-1'],
+        {'error': '--digits must be 0 or more, got -1'},
+        2,
+    ),
+    (
+        'pips-to-price refuses a reference price that is not finite',
+        ['pips-to-price', '--reference-price', 'inf', '--pips', '30', '--pip-size', '0.0001', '--digits', '5'],
+        {'error': '--reference-price must be finite'},
+        3,
+    ),
+    (
+        'pips-to-price refuses a distance that is not a number, with the usage on stderr only',
+        ['pips-to-price', '--reference-price', '1.0850', '--pips', 'abc', '--pip-size', '0.0001', '--digits', '5'],
+        {},
+        2,
+        {'absent': ['error']},
+    ),
+    (
+        'price-to-pips gives the exact decimal distance: 1.08172 lies 32.8 pips from 1.085 at pip size 0.0001',
+        ['price-to-pips', '--reference-price', '1.0850', '--price', '1.08172', '--pip-size', '0.0001', '--digits', '5'],
+        {'pip_distance': 32.8, 'pip_size_used': 0.0001},
+        0,
+        {'absent': ['pip_distance_raw']},
+    ),
+    (
+        'price-to-pips needs no --digits: the reference price, the price and the pip size give the distance',
+        ['price-to-pips', '--reference-price', '1.0850', '--price', '1.08172', '--pip-size', '0.0001'],
+        {'pip_distance': 32.8, 'pip_size_used': 0.0001},
+        0,
+    ),
+    (
+        'price-to-pips measures a level above the reference as well: 1.088 lies 30 pips from 1.085',
+        ['price-to-pips', '--reference-price', '1.0850', '--price', '1.088', '--pip-size', '0.0001', '--digits', '5'],
+        {'pip_distance': 30},
+        0,
+    ),
+    (
+        'distance: 30 pips at pip size 0.0001 and digits 5 are 300 in 1/100000 of the price and 300 points',
+        ['distance', '--pips', '30', '--pip-size', '0.0001', '--digits', '5'],
+        {'price_distance': 0.003, 'relative': 300, 'points': 300},
+        0,
+    ),
+    (
+        'distance: a stop 5.00 away at digits 2 is the served example 500000, and 500 points',
+        ['distance', '--price-distance', '5.00', '--digits', '2'],
+        {'price_distance': 5, 'relative': 500000, 'points': 500},
+        0,
+    ),
+    (
+        'distance: 0.3 at digits 3 is 30000 and 300 points',
+        ['distance', '--price-distance', '0.3', '--digits', '3'],
+        {'relative': 30000, 'points': 300},
+        0,
+    ),
+    (
+        'distance: 2.00 at digits 2 is 200000, a relative distance the server accepts',
+        ['distance', '--price-distance', '2.00', '--digits', '2'],
+        {'relative': 200000, 'points': 200},
+        0,
+    ),
+    (
+        'distance: 0.002 at digits 5 is 200, a relative distance the server accepts',
+        ['distance', '--price-distance', '0.002', '--digits', '5'],
+        {'relative': 200, 'points': 200},
+        0,
+    ),
+    (
+        'distance: 0.004 at digits 5 is 400, a relative distance the server accepts',
+        ['distance', '--price-distance', '0.004', '--digits', '5'],
+        {'relative': 400, 'points': 400},
+        0,
+    ),
+    (
+        'distance refuses a value off the multiples of 10^(5 - digits) and names the two nearest: 12.5 pips at digits 2',
+        ['distance', '--pips', '12.5', '--pip-size', '0.01', '--digits', '2'],
+        {'error': 'relative distance 12500 is not a multiple of 1000 at digits 2; the nearest are 12000 and 13000'},
+        2,
+    ),
+    (
+        'distance needs the pip size with --pips',
+        ['distance', '--pips', '30', '--digits', '5'],
+        {'error': '--pips needs --pip-size'},
+        2,
+    ),
+    (
+        'distance takes no pip size beside a price distance',
+        ['distance', '--price-distance', '0.003', '--pip-size', '0.0001', '--digits', '5'],
+        {'error': '--pip-size goes with --pips only'},
+        2,
+    ),
+    (
+        'distance takes --pips or --price-distance, not both',
+        ['distance', '--pips', '30', '--price-distance', '0.003', '--pip-size', '0.0001', '--digits', '5'],
+        {},
+        2,
+    ),
+    (
+        'distance refuses a distance that is not above 0',
+        ['distance', '--price-distance', '0', '--digits', '5'],
+        {'error': '--price-distance must be above 0, got 0'},
+        2,
+    ),
+    (
+        'a call without a subcommand prints the help on stderr and exits 2',
+        [],
+        {},
+        2,
+        {'absent': ['error']},
+    ),
+)
+"""Every behavior the script promises, one case each; ``--self-test`` runs them."""
+
+DEFAULT_TOLERANCE = 1e-9
+"""The absolute tolerance of a case's numbers where the case names none."""
 
 
-def _emit_json(payload: dict[str, Any]) -> None:
-    """Write a JSON payload to stdout, terminated by newline.
+def polarity(side: str, direction: str) -> int:
+    """Return the sign a protection's distance takes from the reference price.
 
     Args:
-        payload: Dict to serialize as JSON.
+        side: ``buy`` or ``sell``.
+        direction: ``sl`` for a stop loss, ``tp`` for a take profit.
+
+    Returns:
+        1 when the level lies above the reference (a buy's take profit, a sell's stop loss), -1 when it lies below.
     """
-    json.dump(payload, sys.stdout, separators=(',', ':'), ensure_ascii=True)
-    sys.stdout.write('\n')
+    return 1 if (side == 'buy') == (direction == 'tp') else -1
+
+
+def round_to_digits(price: Decimal, digits: int) -> Decimal:
+    """Round a price half up to a number of decimals.
+
+    Args:
+        price: The price.
+        digits: The decimals the symbol's prices carry.
+
+    Returns:
+        The rounded price.
+    """
+    return price.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+
+
+def pips_to_price(reference: Decimal, pips: Decimal, pip_size: Decimal, side: str, direction: str) -> Decimal:
+    """Return the level that lies a pip distance from a reference price.
+
+    Args:
+        reference: The reference price, as the entry price.
+        pips: The distance in pips; decimals are allowed.
+        pip_size: The price of one pip.
+        side: ``buy`` or ``sell``.
+        direction: ``sl`` or ``tp``.
+
+    Returns:
+        The level, not yet rounded.
+    """
+    return reference + polarity(side, direction) * pips * pip_size
+
+
+def price_to_pips(reference: Decimal, price: Decimal, pip_size: Decimal) -> Decimal:
+    """Return the distance between two prices in pips.
+
+    Args:
+        reference: The reference price.
+        price: The other price.
+        pip_size: The price of one pip.
+
+    Returns:
+        The exact distance, never rounded to a whole pip.
+    """
+    return abs(price - reference) / pip_size
+
+
+def distance(price_distance: Decimal, digits: int) -> tuple[Decimal, Decimal]:
+    """Express a price distance in the units of the relative and the slippage fields of an order.
+
+    Args:
+        price_distance: The distance in display price.
+        digits: The decimals the symbol's prices carry.
+
+    Returns:
+        The distance in 1/100000 of the price, as ``relativeStopLoss`` and ``relativeTakeProfit`` take it, and in points
+        of 1/10^digits, as ``slippageInPoints`` takes it.
+    """
+    return price_distance.scaleb(5), price_distance.scaleb(digits)
+
+
+def _plain(number: Decimal) -> str:
+    """Write a number in plain decimal notation.
+
+    Args:
+        number: The number.
+
+    Returns:
+        Its digits without an exponent: a whole value without a fraction, any other value without a trailing zero.
+    """
+    text = format(number.normalize(), 'f')
+    return '0' if text == '-0' else text
+
+
+def _json(value: object) -> str:
+    """Write a value of an answer as JSON, every number in plain decimal notation.
+
+    Args:
+        value: The value: an object, a decimal, an integer, a boolean, a string or ``None``.
+
+    Returns:
+        The JSON text, ASCII only, with no space after a separator.
+    """
+    if isinstance(value, dict):
+        return '{' + ','.join(f'{json.dumps(key)}:{_json(item)}' for key, item in value.items()) + '}'
+    if isinstance(value, Decimal):
+        return _plain(value)
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _emit_json(payload: Answer) -> None:
+    """Write an answer to stdout as one line of JSON.
+
+    Args:
+        payload: The answer.
+    """
+    sys.stdout.write(_json(payload) + '\n')
     sys.stdout.flush()
 
 
 def _emit_error(message: str, *, exit_code: int) -> NoReturn:
-    """Emit a diagnostic to stderr, an error JSON to stdout, and exit.
+    """Report a refusal on stderr and as a JSON object on stdout, and exit.
 
     Args:
-        message: Human-readable description of the failure.
-        exit_code: Process exit code (non-zero).
+        message: The reason.
+        exit_code: The exit code.
+
+    Raises:
+        SystemExit: Always, with the exit code.
     """
     print(f'error: {message}', file=sys.stderr)
-    json.dump({'error': message}, sys.stdout, separators=(',', ':'), ensure_ascii=True)
-    sys.stdout.write('\n')
+    sys.stdout.write(json.dumps({'error': message}, separators=(',', ':'), ensure_ascii=True) + '\n')
     sys.stdout.flush()
-    sys.exit(exit_code)
+    raise SystemExit(exit_code)
 
 
-def _polarity(side: str, direction: str) -> int:
-    """Return +1 if pip movement adds to price, -1 if it subtracts.
+def _number(text: str) -> Decimal:
+    """Read a number of the command line as an exact decimal.
 
     Args:
-        side: Trade side, 'buy' or 'sell'.
-        direction: SL/TP context, 'sl' or 'tp'.
+        text: The text of the argument.
 
     Returns:
-        +1 if (side, direction) combination causes price to add, -1 if subtract.
+        The number.
 
     Raises:
-        ValueError: If the (side, direction) combination is not recognized.
+        argparse.ArgumentTypeError: When the text is not a number.
     """
-    if side == 'buy' and direction == 'sl':
-        return -1
-    if side == 'buy' and direction == 'tp':
-        return +1
-    if side == 'sell' and direction == 'sl':
-        return +1
-    if side == 'sell' and direction == 'tp':
-        return -1
-    raise ValueError(f'invalid side/direction combination: side={side!r}, direction={direction!r}')
-
-
-def _quantize(value: Decimal, digits: int) -> Decimal:
-    """Round a Decimal value to a given number of decimal places using ROUND_HALF_UP.
-
-    Args:
-        value: The value to round.
-        digits: Number of decimal places (>= 0).
-
-    Returns:
-        The value rounded to the requested number of decimal places.
-
-    Raises:
-        ValueError: If ``digits`` is negative.
-    """
-    if digits < 0:
-        raise ValueError(f'digits must be >= 0, got {digits}')
-    quant = Decimal(1) if digits == 0 else Decimal(1).scaleb(-digits)
-    return value.quantize(quant, rounding=ROUND_HALF_UP)
-
-
-def pips_to_price(
-    reference_price: Decimal,
-    pips: int,
-    pip_size: Decimal,
-    side: str,
-    direction: str,
-) -> Decimal:
-    """Convert a pip distance to an absolute price.
-
-    Args:
-        reference_price: Entry price (for SL/TP placement) or current quote.
-        pips: Pip distance (non-negative integer). The polarity relative to reference_price
-              is determined by (side, direction).
-        pip_size: Price increment per pip (e.g., 0.0001 for EURUSD, 0.01 for USDJPY,
-                  0.01 for XAUUSD, 0.1 for an index).
-        side: 'buy' or 'sell'.
-        direction: 'sl' or 'tp'.
-
-    Returns:
-        Absolute price as a Decimal (NOT yet rounded to digits; caller rounds).
-
-    Polarity rules:
-        side=buy,  direction=sl: price = reference_price - (pips * pip_size)
-        side=buy,  direction=tp: price = reference_price + (pips * pip_size)
-        side=sell, direction=sl: price = reference_price + (pips * pip_size)
-        side=sell, direction=tp: price = reference_price - (pips * pip_size)
-    """
-    sign = _polarity(side, direction)
-    return reference_price + Decimal(sign) * Decimal(pips) * pip_size
-
-
-def price_to_pips(
-    reference_price: Decimal,
-    target_price: Decimal,
-    pip_size: Decimal,
-) -> tuple[int, Decimal]:
-    """Convert an absolute price to a pip distance.
-
-    Args:
-        reference_price: Entry price or current quote.
-        target_price: Target absolute price (SL or TP level).
-        pip_size: Price increment per pip.
-
-    Returns:
-        Tuple of (rounded integer pip distance, raw Decimal pip distance).
-        The integer pip distance is the absolute value rounded to the nearest pip
-        using ROUND_HALF_UP.
-
-    Raises:
-        ValueError: If ``pip_size`` is not strictly positive.
-    """
-    if pip_size <= 0:
-        raise ValueError(f'pip_size must be > 0, got {pip_size}')
-    raw = abs(target_price - reference_price) / pip_size
-    rounded = int(raw.quantize(Decimal(1), rounding=ROUND_HALF_UP))
-    return rounded, raw
-
-
-def sl_tp_from_risk_reward(
-    entry: Decimal,
-    risk_pips: int,
-    reward_pips: int,
-    pip_size: Decimal,
-    side: str,
-) -> tuple[Decimal, Decimal]:
-    """Given entry, risk-in-pips and reward-in-pips, return (sl_absolute, tp_absolute).
-
-    Args:
-        entry: Entry price.
-        risk_pips: Distance from entry to stop loss, in pips (positive).
-        reward_pips: Distance from entry to take profit, in pips (positive).
-        pip_size: Price increment per pip.
-        side: 'buy' or 'sell'.
-
-    Returns:
-        Tuple of (stop_loss_price, take_profit_price) as Decimals.
-    """
-    sl = pips_to_price(entry, risk_pips, pip_size, side, 'sl')
-    tp = pips_to_price(entry, reward_pips, pip_size, side, 'tp')
-    return sl, tp
-
-
-def sl_tp_to_pip_distances(
-    entry: Decimal,
-    sl_absolute: Decimal,
-    tp_absolute: Decimal,
-    pip_size: Decimal,
-) -> tuple[int, int]:
-    """Given entry + absolute SL + absolute TP, return (sl_pips, tp_pips).
-
-    Args:
-        entry: Entry price.
-        sl_absolute: Absolute stop-loss price.
-        tp_absolute: Absolute take-profit price.
-        pip_size: Price increment per pip.
-
-    Returns:
-        Tuple of (sl_pips, tp_pips), both non-negative integers.
-    """
-    sl_pips, _ = price_to_pips(entry, sl_absolute, pip_size)
-    tp_pips, _ = price_to_pips(entry, tp_absolute, pip_size)
-    return sl_pips, tp_pips
-
-
-def _load_precision_table() -> dict[str, Any]:
-    """Load and parse the precision baseline asset.
-
-    Terminates the process via ``_emit_error`` (``EXIT_LOGIC_ERROR``) when the
-    precision baseline asset cannot be loaded (missing file, unreadable
-    content, or unexpected JSON shape).
-
-    Returns:
-        Parsed JSON dict with top-level keys ``__note__``, ``schema_version``,
-        ``as_of``, ``audit_method``, ``symbols`` (list).
-    """
-    if not _ASSET_PATH.is_file():
-        _emit_error(
-            f'precision table not found at {_ASSET_PATH}',
-            exit_code=EXIT_LOGIC_ERROR,
-        )
     try:
-        with _ASSET_PATH.open('r', encoding='utf-8') as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
+        return Decimal(text)
+    except InvalidOperation:
+        raise argparse.ArgumentTypeError(f'not a number: {text!r}') from None
+
+
+def _finite(value: Decimal, flag: str) -> Decimal:
+    """Refuse a value that is not finite.
+
+    Args:
+        value: The value.
+        flag: The flag that gave it.
+
+    Returns:
+        The value.
+    """
+    if not value.is_finite():
+        _emit_error(f'{flag} must be finite', exit_code=EXIT_NUMERIC_ERROR)
+    return value
+
+
+def _pip_size(value: Decimal) -> Decimal:
+    """Refuse a pip size that is not finite or not above 0.
+
+    Args:
+        value: The pip size.
+
+    Returns:
+        The pip size.
+    """
+    if _finite(value, '--pip-size') <= 0:
+        _emit_error(f'--pip-size must be above 0, got {_plain(value)}', exit_code=EXIT_NUMERIC_ERROR)
+    return value
+
+
+def _digits(value: int) -> int:
+    """Refuse a negative number of digits.
+
+    Args:
+        value: The digits.
+
+    Returns:
+        The digits.
+    """
+    if value < 0:
+        _emit_error(f'--digits must be 0 or more, got {value}', exit_code=EXIT_INVALID_ARGS)
+    return value
+
+
+def _handle_pips_to_price(args: argparse.Namespace) -> Answer:
+    """Answer ``pips-to-price``.
+
+    Args:
+        args: The parsed arguments.
+
+    Returns:
+        The level rounded to the digits, and the unrounded level when rounding changed it.
+    """
+    pip_size = _pip_size(args.pip_size)
+    digits = _digits(args.digits)
+    level = pips_to_price(
+        _finite(args.reference_price, '--reference-price'), _finite(args.pips, '--pips'), pip_size, args.side, args.direction
+    )
+    rounded = round_to_digits(level, digits)
+    answer: Answer = {'absolute_price': rounded, 'pip_size_used': pip_size, 'rounded_to_digits': digits}
+    answer['rounded'] = rounded != level
+    if rounded != level:
+        answer['unrounded_price'] = level
+    return answer
+
+
+def _handle_price_to_pips(args: argparse.Namespace) -> Answer:
+    """Answer ``price-to-pips``.
+
+    Args:
+        args: The parsed arguments.
+
+    Returns:
+        The exact distance in pips.
+    """
+    pip_size = _pip_size(args.pip_size)
+    reference = _finite(args.reference_price, '--reference-price')
+    return {'pip_distance': price_to_pips(reference, _finite(args.price, '--price'), pip_size), 'pip_size_used': pip_size}
+
+
+def _handle_distance(args: argparse.Namespace) -> Answer:
+    """Answer ``distance``.
+
+    Args:
+        args: The parsed arguments.
+
+    Returns:
+        The distance in display price, in 1/100000 of the price and in points.
+    """
+    digits = _digits(args.digits)
+    if args.pips is not None:
+        if args.pip_size is None:
+            _emit_error('--pips needs --pip-size', exit_code=EXIT_INVALID_ARGS)
+        flag, price_distance = '--pips', _finite(args.pips, '--pips') * _pip_size(args.pip_size)
+    else:
+        if args.pip_size is not None:
+            _emit_error('--pip-size goes with --pips only', exit_code=EXIT_INVALID_ARGS)
+        flag, price_distance = '--price-distance', _finite(args.price_distance, '--price-distance')
+    if price_distance <= 0:
+        _emit_error(f'{flag} must be above 0, got {_plain(price_distance)}', exit_code=EXIT_INVALID_ARGS)
+    relative, points = distance(price_distance, digits)
+    step = Decimal(1).scaleb(5 - digits)
+    if relative % step != 0:
+        lower = (relative / step).to_integral_value(rounding=ROUND_FLOOR) * step
         _emit_error(
-            f'failed to load precision table: {exc}',
-            exit_code=EXIT_LOGIC_ERROR,
+            f'relative distance {_plain(relative)} is not a multiple of {_plain(step)} at digits {digits}; '
+            f'the nearest are {_plain(lower)} and {_plain(lower + step)}',
+            exit_code=EXIT_INVALID_ARGS,
         )
-    if not isinstance(data, dict) or not isinstance(data.get('symbols'), list):
-        _emit_error(
-            "precision table has unexpected shape (expected dict with 'symbols' list)",
-            exit_code=EXIT_LOGIC_ERROR,
-        )
-    return data
+    return {'price_distance': price_distance, 'relative': relative, 'points': points}
+
+
+PIP_SIZE_HELP = 'Price of one pip: pipSize of get_symbol_details on the Local server.'
+DIGITS_HELP = "Decimals of the symbol's prices: digits of get_symbol_details (Local) or of get_symbols (Remote)."
+
+EPILOG = """\
+Run it as python3 <skill folder>/scripts/pip_math.py on macOS and Linux, and as
+python <skill folder>/scripts/pip_math.py on Windows (py in place of python where python is not on the path).
+
+Examples:
+  python3 <skill folder>/scripts/pip_math.py pips-to-price --reference-price 1.0850 --pips 30 \\
+      --pip-size 0.0001 --digits 5 --side buy --direction tp
+  python3 <skill folder>/scripts/pip_math.py price-to-pips --reference-price 1.0850 --price 1.08172 \\
+      --pip-size 0.0001
+  python3 <skill folder>/scripts/pip_math.py distance --price-distance 0.3 --digits 3
+  python3 <skill folder>/scripts/pip_math.py --self-test
+
+Every price is a display price on both servers. The quotes of the Remote server are integers in 1/100000 of the
+price: convert them with units_encoding.py quote-to-price first.
+
+pips-to-price rounds the level to --digits and prints rounded true with the unrounded level when that changed it:
+a price with more decimals than the symbol's digits is refused, so send the rounded level.
+price-to-pips prints the exact distance in pips, decimals included.
+distance prints the distance in display price, as relative (1/100000 of the price, the unit of relativeStopLoss and
+relativeTakeProfit) and as points (1/10^digits, the unit of slippageInPoints). A relative distance is a multiple of
+10^(5 - digits); for any other distance it exits 2 and names the two nearest.
+
+Every answer is one line of JSON on stdout. A refusal writes "error: <reason>" on stderr and {"error": "<reason>"} on
+stdout. Exit codes: 0 success, 2 invalid input, 3 a value that is not finite or a pip size that is not above 0.
+--self-test runs the script's own cases and exits 0 when every case holds, 1 otherwise.
+"""
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """Construct the top-level argparse.ArgumentParser with three subparsers."""
+    """Build the parser of the command line.
+
+    Returns:
+        The parser, with one subparser per subcommand.
+    """
     parser = argparse.ArgumentParser(
         prog='pip_math.py',
-        description='Convert between pip distance and absolute price for cTrader server encodings.',
+        description='Convert between pip distances and display prices, and express a distance in order-field units.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python pip_math.py pips-to-price --pip-size 0.0001 --digits 5 \\\n"
-            "      --reference-price 1.0850 --pips 30 --side buy --direction tp\n"
-            "  python pip_math.py price-to-pips --pip-size 0.01 --digits 2 \\\n"
-            "      --reference-price 1900.50 --price 1901.50 --side buy --direction tp\n"
-            "  python pip_math.py lookup-precision --symbol EURUSD\n"
-            "  python pip_math.py --self-test\n"
-            "\n"
-            "Exit codes:\n"
-            "  0  success (including 'symbol not in baseline' miss on lookup-precision)\n"
-            "  2  invalid arguments\n"
-            "  3  numeric error (non-finite reference price, pip_size <= 0)\n"
-            "  4  asset-load error (precision table missing or corrupt)\n"
-        ),
+        epilog=EPILOG,
     )
-    parser.add_argument(
-        '--self-test',
-        action='store_true',
-        help='Run built-in self-test cases and exit 0 if all pass.',
-    )
-
+    parser.add_argument('--self-test', action='store_true', help="Run the script's own cases; exit 0 when all hold.")
     subparsers = parser.add_subparsers(dest='subcommand', metavar='SUBCOMMAND')
 
-    p1 = subparsers.add_parser(
-        'pips-to-price',
-        help='Convert a pip distance into an absolute price.',
-    )
-    p1.add_argument('--pip-size', required=True, type=float)
-    p1.add_argument('--digits', required=True, type=int)
-    p1.add_argument('--reference-price', required=True, type=float)
-    p1.add_argument('--pips', required=True, type=int)
-    p1.add_argument('--side', default='buy', choices=_SIDES)
-    p1.add_argument('--direction', default='tp', choices=_DIRECTIONS)
+    level = subparsers.add_parser('pips-to-price', help='Level a pip distance away from a reference price.')
+    level.add_argument('--reference-price', type=_number, required=True, help='The reference price, as the entry.')
+    level.add_argument('--pips', type=_number, required=True, help='The distance in pips; decimals are allowed.')
+    level.add_argument('--pip-size', type=_number, required=True, help=PIP_SIZE_HELP)
+    level.add_argument('--digits', type=int, required=True, help=DIGITS_HELP)
+    level.add_argument('--side', default='buy', choices=SIDES, help='The side of the position (default: buy).')
+    level.add_argument('--direction', default='tp', choices=DIRECTIONS, help='sl or tp (default: tp).')
+    level.set_defaults(handler=_handle_pips_to_price)
 
-    p2 = subparsers.add_parser(
-        'price-to-pips',
-        help='Convert an absolute price into a pip distance from the reference price.',
-    )
-    p2.add_argument('--pip-size', required=True, type=float)
-    p2.add_argument('--digits', required=True, type=int)
-    p2.add_argument('--reference-price', required=True, type=float)
-    p2.add_argument('--price', required=True, type=float)
-    p2.add_argument('--side', default='buy', choices=_SIDES)
-    p2.add_argument('--direction', default='tp', choices=_DIRECTIONS)
+    pips = subparsers.add_parser('price-to-pips', help='Distance in pips between a reference price and a price.')
+    pips.add_argument('--reference-price', type=_number, required=True, help='The reference price.')
+    pips.add_argument('--price', type=_number, required=True, help='The other price.')
+    pips.add_argument('--pip-size', type=_number, required=True, help=PIP_SIZE_HELP)
+    pips.add_argument('--digits', type=int, help='Accepted and not used.')
+    pips.add_argument('--side', default='buy', choices=SIDES, help='Accepted and not used.')
+    pips.add_argument('--direction', default='tp', choices=DIRECTIONS, help='Accepted and not used.')
+    pips.set_defaults(handler=_handle_price_to_pips)
 
-    p3 = subparsers.add_parser(
-        'lookup-precision',
-        help='Look up baseline precision for a symbol from assets/symbol_precision_table.json.',
+    span = subparsers.add_parser(
+        'distance', help='A distance as relative (1/100000 of the price) and as points (1/10^digits).'
     )
-    p3.add_argument('--symbol', required=True, type=str)
-
+    given = span.add_mutually_exclusive_group(required=True)
+    given.add_argument('--pips', type=_number, help='The distance in pips; needs --pip-size.')
+    given.add_argument('--price-distance', type=_number, help='The distance in display price.')
+    span.add_argument('--pip-size', type=_number, help=PIP_SIZE_HELP)
+    span.add_argument('--digits', type=int, required=True, help=DIGITS_HELP)
+    span.set_defaults(handler=_handle_distance)
     return parser
 
 
-def _handle_pips_to_price(args: argparse.Namespace) -> dict[str, Any]:
-    """Dispatch handler for the `pips-to-price` subcommand.
-
-    Args:
-        args: Parsed CLI arguments.
-
-    Returns:
-        Output payload to emit as JSON.
-    """
-    pip_size = Decimal(str(args.pip_size))
-    if pip_size <= 0:
-        _emit_error(f'--pip-size must be > 0, got {args.pip_size}', exit_code=EXIT_NUMERIC_ERROR)
-    if args.digits < 0:
-        _emit_error(f'--digits must be >= 0, got {args.digits}', exit_code=EXIT_INVALID_ARGS)
-    if not math.isfinite(args.reference_price):
-        _emit_error(
-            f'--reference-price must be finite, got {args.reference_price}',
-            exit_code=EXIT_NUMERIC_ERROR,
-        )
-    reference = Decimal(str(args.reference_price))
-    raw = pips_to_price(reference, args.pips, pip_size, args.side, args.direction)
-    rounded = _quantize(raw, args.digits)
-    return {
-        'absolute_price': float(rounded),
-        'pip_size_used': float(pip_size),
-        'rounded_to_digits': args.digits,
-    }
-
-
-def _handle_price_to_pips(args: argparse.Namespace) -> dict[str, Any]:
-    """Dispatch handler for the `price-to-pips` subcommand.
-
-    Args:
-        args: Parsed CLI arguments.
-
-    Returns:
-        Output payload to emit as JSON.
-    """
-    pip_size = Decimal(str(args.pip_size))
-    if pip_size <= 0:
-        _emit_error(f'--pip-size must be > 0, got {args.pip_size}', exit_code=EXIT_NUMERIC_ERROR)
-    if not math.isfinite(args.reference_price) or not math.isfinite(args.price):
-        _emit_error('--reference-price and --price must be finite', exit_code=EXIT_NUMERIC_ERROR)
-    reference = Decimal(str(args.reference_price))
-    target = Decimal(str(args.price))
-    rounded, raw = price_to_pips(reference, target, pip_size)
-    return {
-        'pip_distance': rounded,
-        'pip_distance_raw': float(raw),
-        'pip_size_used': float(pip_size),
-    }
-
-
-def _handle_lookup_precision(args: argparse.Namespace) -> dict[str, Any]:
-    """Dispatch handler for the `lookup-precision` subcommand.
-
-    Args:
-        args: Parsed CLI arguments.
-
-    Returns:
-        Output payload to emit as JSON. If the symbol is found, returns the
-        row plus the table-level `__note__`. If the symbol is not in the
-        baseline, returns `{"available": false, "symbol": ..., "suggestion": ...}`
-        with exit code 0 (a miss is not an error -- the caller falls back
-        to `get_symbol_details`).
-    """
-    table = _load_precision_table()
-    note = table.get('__note__', '')
-    for row in table['symbols']:
-        if isinstance(row, dict) and row.get('symbol') == args.symbol:
-            return {
-                'symbol': row.get('symbol'),
-                'pipDigits': row.get('pipDigits'),
-                'pipettesPerUnit': row.get('pipettesPerUnit'),
-                'lotSize_baseline': row.get('lotSize_baseline'),
-                'source': row.get('source'),
-                'as_of': row.get('as_of'),
-                '__note__': note,
-            }
-    return {
-        'available': False,
-        'symbol': args.symbol,
-        'suggestion': 'symbol not in baseline -- verify against get_symbol_details(symbol)',
-        '__note__': note,
-    }
-
-
 def _self_test() -> int:
-    """Run canonical self-test cases.
+    """Run every case of the case table through ``main`` and name each case that fails on stderr.
 
     Returns:
-        0 if all cases pass, 1 otherwise.
+        0 when every case holds, 1 otherwise.
     """
-    parser = _build_parser()
-    cases: list[tuple[str, list[str], dict[str, Any]]] = [
-        (
-            'EURUSD long SL 30 pips below 1.0850',
-            [
-                'pips-to-price',
-                '--pip-size', '0.0001',
-                '--digits', '5',
-                '--reference-price', '1.0850',
-                '--pips', '30',
-                '--side', 'buy',
-                '--direction', 'sl',
-            ],
-            {'absolute_price': 1.082, 'pip_size_used': 0.0001},
-        ),
-        (
-            'EURUSD long TP 30 pips above 1.0850 (SKILL.md row 1)',
-            [
-                'pips-to-price',
-                '--pip-size', '0.0001',
-                '--digits', '5',
-                '--reference-price', '1.0850',
-                '--pips', '30',
-                '--side', 'buy',
-                '--direction', 'tp',
-            ],
-            {'absolute_price': 1.088, 'pip_size_used': 0.0001},
-        ),
-        (
-            'USDJPY short SL 50 pips above 150.30',
-            [
-                'pips-to-price',
-                '--pip-size', '0.01',
-                '--digits', '3',
-                '--reference-price', '150.30',
-                '--pips', '50',
-                '--side', 'sell',
-                '--direction', 'sl',
-            ],
-            {'absolute_price': 150.8, 'pip_size_used': 0.01},
-        ),
-        (
-            'XAUUSD long TP 100 pips above 1900.50 (metal pip_size=0.01)',
-            [
-                'pips-to-price',
-                '--pip-size', '0.01',
-                '--digits', '2',
-                '--reference-price', '1900.50',
-                '--pips', '100',
-                '--side', 'buy',
-                '--direction', 'tp',
-            ],
-            {'absolute_price': 1901.5, 'pip_size_used': 0.01},
-        ),
-        (
-            'US500 long SL 20 pips below 5000.0 (index pip_size=0.1)',
-            [
-                'pips-to-price',
-                '--pip-size', '0.1',
-                '--digits', '1',
-                '--reference-price', '5000.0',
-                '--pips', '20',
-                '--side', 'buy',
-                '--direction', 'sl',
-            ],
-            {'absolute_price': 4998.0, 'pip_size_used': 0.1},
-        ),
-        (
-            'price-to-pips EURUSD entry 1.0850 SL 1.0820',
-            [
-                'price-to-pips',
-                '--pip-size', '0.0001',
-                '--digits', '5',
-                '--reference-price', '1.0850',
-                '--price', '1.0820',
-                '--side', 'buy',
-                '--direction', 'sl',
-            ],
-            {'pip_distance': 30, 'pip_size_used': 0.0001},
-        ),
-        (
-            'edge: zero pip distance',
-            [
-                'pips-to-price',
-                '--pip-size', '0.0001',
-                '--digits', '5',
-                '--reference-price', '1.0850',
-                '--pips', '0',
-                '--side', 'buy',
-                '--direction', 'sl',
-            ],
-            {'absolute_price': 1.085, 'pip_size_used': 0.0001},
-        ),
-        (
-            'lookup-precision EURUSD baseline (Phase 2 asset row 1)',
-            [
-                'lookup-precision',
-                '--symbol', 'EURUSD',
-            ],
-            {
-                'symbol': 'EURUSD',
-                'pipDigits': 5,
-                'pipettesPerUnit': 100000,
-                'lotSize_baseline': 100000,
-                'source': 'remote',
-            },
-        ),
-        (
-            'lookup-precision XAUUSD baseline (3-digit pip per Phase 2 override)',
-            [
-                'lookup-precision',
-                '--symbol', 'XAUUSD',
-            ],
-            {
-                'symbol': 'XAUUSD',
-                'pipDigits': 3,
-                'pipettesPerUnit': 1000,
-                'lotSize_baseline': 100,
-                'source': 'local',
-            },
-        ),
-        (
-            'lookup-precision unknown ticker returns available:false',
-            [
-                'lookup-precision',
-                '--symbol', 'UNKNOWN_TICKER',
-            ],
-            {
-                'available': False,
-                'symbol': 'UNKNOWN_TICKER',
-            },
-        ),
-    ]
-
-    failures = 0
-    for label, argv, expected in cases:
-        try:
-            args = parser.parse_args(argv)
-            if args.subcommand == 'pips-to-price':
-                actual = _handle_pips_to_price(args)
-            elif args.subcommand == 'price-to-pips':
-                actual = _handle_price_to_pips(args)
-            elif args.subcommand == 'lookup-precision':
-                actual = _handle_lookup_precision(args)
-            else:
-                print(f'FAIL: {label} unknown subcommand {args.subcommand!r}', file=sys.stderr)
-                failures += 1
-                continue
-        except SystemExit as exc:
-            print(f'FAIL: {label} unexpected exit {exc.code}', file=sys.stderr)
-            failures += 1
-            continue
-
-        case_ok = True
-        for key, exp_val in expected.items():
-            act_val = actual.get(key)
-            if isinstance(exp_val, float):
-                ok = isinstance(act_val, (int, float)) and math.isclose(
-                    float(act_val), exp_val, rel_tol=1e-9, abs_tol=1e-9,
-                )
-            else:
-                ok = act_val == exp_val
-            if not ok:
-                print(
-                    f'FAIL: {label} key={key} expected={exp_val!r} got={act_val!r}',
-                    file=sys.stderr,
-                )
-                failures += 1
-                case_ok = False
-                break
-        if case_ok:
-            print(f'PASS: {label}', file=sys.stderr)
-
-    if failures:
-        print(f'\n{failures} test(s) failed', file=sys.stderr)
+    failed = 0
+    for case in SELF_TEST_CASES:
+        label, argv, expected, exit_code = case[:4]
+        checks = case[4] if len(case) == 5 else {}
+        status, answer = _run_case(argv)
+        problems = _case_problems(expected, exit_code, checks, status, answer)
+        if problems:
+            failed += 1
+            detail = '; '.join(problems)
+            print(f'FAIL: {label}: {detail}', file=sys.stderr)
+    if failed:
+        print(f'{failed} of {len(SELF_TEST_CASES)} cases failed', file=sys.stderr)
         return 1
-    print('\nAll self-tests passed', file=sys.stderr)
+    print(f'all {len(SELF_TEST_CASES)} cases passed', file=sys.stderr)
     return EXIT_OK
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Entry point.
+def _run_case(argv: list[str]) -> tuple[int, dict[str, object] | None]:
+    """Run ``main`` on the arguments of a case with both output streams captured.
 
     Args:
-        argv: CLI argument list (or None to use sys.argv).
+        argv: The arguments of the case.
 
     Returns:
-        Process exit code.
+        The exit status of the call, and the object it printed or ``None`` when standard output is not one line: every
+        line the script prints on standard output is one JSON object, and its help is more than one line.
+    """
+    printed = io.StringIO()
+    with redirect_stdout(printed), redirect_stderr(io.StringIO()):
+        try:
+            status = main(list(argv))
+        except SystemExit as stop:
+            status = stop.code if isinstance(stop.code, int) else int(stop.code is not None)
+    lines = printed.getvalue().splitlines()
+    answer = json.loads(lines[0]) if len(lines) == 1 else None
+    return status, answer if isinstance(answer, dict) else None
+
+
+def _case_problems(
+    expected: Mapping[str, object],
+    exit_code: int,
+    checks: Mapping[str, object],
+    status: int,
+    answer: dict[str, object] | None,
+) -> list[str]:
+    """Compare the outcome of a call with the case that promises it.
+
+    Args:
+        expected: The values the case expects under the keys it lists; a key it does not list is not compared.
+        exit_code: The exit code the case expects.
+        checks: The tolerance of the case's numbers, the keys the answer must not hold, both or neither.
+        status: The exit status of the call.
+        answer: The object the call printed, or ``None`` when it printed none.
+
+    Returns:
+        One description per difference; empty when the outcome keeps the case.
+    """
+    problems = [] if status == exit_code else [f'exit code {status}, expected {exit_code}']
+    if answer is None:
+        return [*problems, 'printed no JSON object'] if expected else problems
+    tolerance = checks.get('tolerance', DEFAULT_TOLERANCE)
+    absent = checks.get('absent', [])
+    keys = absent if isinstance(absent, list) else []
+    limit = float(tolerance) if isinstance(tolerance, int | float) else DEFAULT_TOLERANCE
+    problems.extend(_mismatches(expected, answer, '', limit))
+    problems.extend(f'{key}: printed, expected absent' for key in keys if key in answer)
+    return problems
+
+
+def _mismatches(expected: object, printed: object, path: str, tolerance: float) -> list[str]:
+    """Compare a printed value with the value a case expects at the same key path.
+
+    A number matches a number within the tolerance, ``None`` matches JSON null and nothing else, a boolean or a string
+    matches only the same value of its own type, an object is compared on the keys the case lists, and an array element
+    by element at equal length, each by the same rule.
+
+    Args:
+        expected: The value the case expects.
+        printed: The value the call printed.
+        path: The key path of the value, empty for the printed object itself.
+        tolerance: The absolute tolerance of numbers.
+
+    Returns:
+        One description per difference.
+    """
+    where = path or 'answer'
+    difference = [f'{where}: expected {expected!r}, got {printed!r}']
+    if isinstance(expected, dict):
+        if not isinstance(printed, dict):
+            return difference
+        problems: list[str] = []
+        for key, value in expected.items():
+            key_path = f'{path}.{key}' if path else str(key)
+            if key in printed:
+                problems.extend(_mismatches(value, printed[key], key_path, tolerance))
+            else:
+                problems.append(f'{key_path}: missing')
+        return problems
+    if isinstance(expected, list | tuple):
+        if not isinstance(printed, list) or len(printed) != len(expected):
+            return difference
+        return [
+            problem
+            for index, (value, item) in enumerate(zip(expected, printed, strict=True))
+            for problem in _mismatches(value, item, f'{where}[{index}]', tolerance)
+        ]
+    if isinstance(expected, int | float) and not isinstance(expected, bool):
+        if isinstance(printed, bool) or not isinstance(printed, int | float):
+            return difference
+        return [] if abs(printed - expected) <= tolerance else difference
+    return [] if type(printed) is type(expected) and printed == expected else difference
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command line.
+
+    Args:
+        argv: The arguments, or ``None`` for those of the process.
+
+    Returns:
+        The exit code.
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.self_test:
         return _self_test()
-    if args.subcommand == 'pips-to-price':
-        payload = _handle_pips_to_price(args)
-    elif args.subcommand == 'price-to-pips':
-        payload = _handle_price_to_pips(args)
-    elif args.subcommand == 'lookup-precision':
-        payload = _handle_lookup_precision(args)
-    else:
+    if args.subcommand is None:
         parser.print_help(sys.stderr)
         return EXIT_INVALID_ARGS
-    _emit_json(payload)
+    handler: Callable[[argparse.Namespace], Answer] = args.handler
+    _emit_json(handler(args))
     return EXIT_OK
 
 

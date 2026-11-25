@@ -1,123 +1,129 @@
-# Command reference: the read-only surface
+# Read commands
 
-Per-verb detail for every command that only reads data. Each entry gives the pipeline it uses, the flags that make it work, the exact field names and casing of the payload, and the shape you get back when there is nothing to return. Field names are quoted verbatim from live payloads.
+## Calling a read command
+
+Batch `accounts`, batch `symbols` and `periods` take the batch route. Every other command below is shell-routed: give its options at launch together with `--account=<account>`, `-e` and `-q`, as in `orders --account=<account> -e -q`.
+
+Pass every argument of a shell-routed command as its named option at launch (`--symbol=<name>`, `--order=<order-id>`, `--indicator="<title>"`, `--count=<n>`); that form works on every build. Builds read a bare positional at launch differently, so never rely on one.
+
+With `-q`, a non-numeric `--account` ends the command after the sign-in lines with exit 1 and `Invalid account number: '<value>'. Expected a numeric login id.` on standard error. Pass the numeric `Number` that `accounts` reports.
+
+An unknown symbol ends with exit 1 and an `Error: Symbol not ...` line that names it; the wording differs between commands and between builds, so match the `Error:` prefix and the symbol name, not the whole line. This holds for `symbol`, `price` and `candles`.
 
 ## accounts
 
-Batch verb. Call it as `accounts -e` (no `--account`; the batch form rejects that flag with `Error: Parameter account is not allowed`). Payload is a flat PascalCase array with no banner and no header, stdout starting at byte zero: `[{"Id":47246474,"Number":5816091,"Broker":"Spotware","Live":false,"DepositCurrency":"EUR","Leverage":100,"Balance":1000.0}]`. `Live: false` is the field to check before authorizing any mutation on the account. Adding `-q` reroutes the same verb into the shell pipeline: the payload becomes `{"accounts":[{"traderLogin":...,"brokerName":...,"depositCurrency":...,"environment":"demo","isCurrent":true,"balance":...,"accountName":null,"leverage":...,"accountType":"Hedged","accessRights":"FullAccess","accountStatus":"Active","isSwapFree":false,"isLimitedRisk":false,"traderId":...}]}` after a banner and header, with several fields (`environment`, `accountType`, `accessRights`, `accountStatus`, `isSwapFree`, `isLimitedRisk`, `traderId`) that the batch shape does not carry at all. An unrecognized `--broker=` value returns exit 0 with an empty array `[]`, not an error; treat the empty array as "no accounts match that filter."
+Batch command. Call it as `accounts -e`, without `--account`: the batch form refuses that option with `Error: Parameter account is not allowed`. The result is a JSON array of PascalCase objects, such as `[{"Id": <account-id>, "Number": <account>, "Broker": "<broker>", "Live": false, "DepositCurrency": "EUR", "Leverage": 100, "Balance": <balance>}]`. `Number` is the value `--account` takes. `Live` tells a demo account (`false`) from a live one: it is the field to check before any state-changing command.
+
+`--broker=<name>` selects the broker when the same account number exists at more than one broker. `accounts --broker=<name>` with a name that matches no account returns an empty result, `[]`, with exit 0: no account matches that filter.
+
+`accounts -q` takes the shell route and prints `{"accounts": [...]}`, each entry with `traderLogin`, `brokerName`, `depositCurrency`, `environment`, `isCurrent`, `balance`, `accountName`, `leverage`, `accountType`, `accessRights`, `accountStatus`, `isSwapFree`, `isLimitedRisk` and `traderId`. It has no `Live` key: `environment` is a string (`demo` on a demo account), so read whether an account is live from batch `accounts`.
 
 ## symbols
 
-Batch verb. As with `accounts`, the batch and shell-routed forms genuinely differ in schema, not just casing. Call it `symbols --account=<n> -e`: this batch form requires `--account` (the inverse of `accounts`, which forbids it). The batch payload is PascalCase with only `Id`, `Name`, `Description` per entry, no banner: `[{"Id":1,"Name":"EURUSD","Description":"Euro vs US Dollar"}, ...]`. Expect hundreds of entries from a typical broker. Add `-q` and the same verb becomes shell-routed: the payload wraps as `{"symbols":[{"name":...,"description":...,"category":"Default Category","assetClass":"Forex"}, ...]}` — the entries gain `category` and `assetClass` but carry no id field in any casing, so the numeric `Id` exists only in the batch shape. Omitting `--account` on the batch form returns exit 1 with `Error: Option account does not exist` followed by the full usage block on stdout. Because this payload is large, filter by name client-side or use `symbol --symbol=<name>` for one instrument's detail rather than loading the full array into context.
+Batch command. Call it as `symbols --account=<account> -e`: the batch form requires `--account`, the inverse of `accounts`. The result is a JSON array of PascalCase objects with `Id`, `Name` and `Description` only. `--broker=<name>` selects the broker as on `accounts`. The list can be long: filter it by name, or read one instrument with `symbol --symbol=<name>` instead of loading the whole array.
+
+`symbols -q` takes the shell route and prints `{"symbols": [...]}`, each entry with `name`, `description`, `category` and `assetClass` and no id field in any casing, so the numeric `Id` exists only in the batch form.
 
 ## periods
 
-Bare invocation only, no flags whatsoever, no credentials: `ctrader-cli.exe periods`. Passing `-e` to it returns exit 1 with `Error: Parameter e is not allowed`. The payload is plain text, not JSON: a space-separated token list such as `t1 t2 t3 ... HMonth1`, mixing lowercase (`m1`, `h1`, `t1`) and capitalized (`D1`, `W1`, `Month1`) family names. Parse it as whitespace-separated tokens. Period tokens accepted by other commands (`candles`) are case-insensitive even though this canonical list shows one casing per family; a call with `--period=d1` succeeds and echoes back `"timeframe": "d1"` verbatim rather than normalizing to the list's casing.
+Call it as `periods`, with no option and no credentials. `-e` and each credential option are refused: the answer is `Error: Parameter <name> is not allowed`, one line per refused option, and exit 1.
+
+The result is not JSON: it is a space-separated list of tokens that mixes lower-case families (`t1`, `m1`, `h1`) with capitalized ones (`D1`, `W1`, `Month1`). The tokens fall into families: `t` ticks, `m` minutes, `h` hours, `D` days, `W1` week, `Month1` month, `Re` Renko, `Ra` range bars, and the Heikin Ashi forms `Hm`, `Hh`, `Hd`, `Hw1`, `HMonth1`; the number after a prefix is the size. Renko and range tokens serve `backtest` with `--data-mode=ticks`; `candles` takes no Renko or range token, and such a token, like any token `candles` does not take, ends with exit 1 and an `Error:` line.
+
+`candles` accepts a token in another letter case: `--period=d1` works, and the result echoes it as `"timeframe": "d1"` rather than the casing of the list.
 
 ## account
 
-Always shell-routed; there is no batch code path for this verb regardless of flags. Call it `account --account=<n> -e`. A bare positional number at launch (`account 5816091 -e`) exits 0 but is silently discarded — the payload is the default account's regardless of the number passed — so always use the `--account` flag, which is applied and validated. Payload after the banner and `[timestamp] account <n>` header is a camelCase object: `isCurrent`, `balance`, `equity`, `margin`, `freeMargin`, `marginLevel`, `netProfit`, `grossProfit`, `leverage`, `depositAsset`, `accountName`, `accountType`, `traderId`, `brokerName`, `connectionState`, `isSwapFree`.
+Shell-routed. Call it as `account --account=<account> -e -q`. The result is one object with `isCurrent`, `balance`, `equity`, `margin`, `freeMargin`, `marginLevel`, `netProfit`, `grossProfit`, `leverage`, `depositAsset`, `accountName`, `accountType`, `traderId`, `brokerName`, `connectionState` and `isSwapFree`.
+
+`--commands` lists `account switch <account-id>` for changing the account inside a shell session; on a launch line choose the account with `--account=<account>`.
 
 ## account-stats
 
-Always shell-routed, same wrapper as `account`. Call it `account-stats --account=<n> -e`. On an account with no trading history, the payload collapses to a single boolean: `{"available": false}`. No public source documents the populated payload, so discover its shape from a live call against an account with history rather than assuming fields.
+Shell-routed. Call it as `account-stats --account=<account> -e -q`. The result carries `available`; when it is `true`, the result also carries `netProfit`, `totalTrades`, `winningTrades`, `losingTrades`, `profitFactor`, `winningTradesPercent`, `losingTradesPercent`, `averageTrade`, `largestWinningTrade` and `largestLosingTrade`. Read the figures only when `available` is `true`.
 
 ## symbol
 
-Always shell-routed. A bare positional symbol name does not work at launch (`symbol EURUSD -e` returns exit 1: `Error: 'symbol' is required. Provide it as a positional argument inside the shell, or pass --symbol=<value> when launching the command.`). The working form is `symbol --symbol=<name> --account=<n> -e`. Success payload: `{"name","description","category","assetClass","digits","pipSize","lotSize","minVolume","maxVolume","volumeStep","bid","ask"}` — the complete field set needed for order sizing (for EURUSD: `digits=5`, `pipSize=0.0001`, `lotSize=100000`, `minVolume=1000`, `maxVolume=10000000`, `volumeStep=1000`). There is no commission field and no swap field in this output. Commission is a `backtest` input (`--commission`, alongside `--spread`); no swap flag exists on any command, and the only swap-related field anywhere in the CLI surface is the `isSwapFree` boolean in the `account`/`accounts` payloads. A resolvable-format but nonexistent name returns a distinct exit 1: `Error: Symbol not found: NOTAREALSYMBOL` — different from the missing-flag error above, so branch on message text, not just exit code.
+Shell-routed. Call it as `symbol --symbol=<name> --account=<account> -e -q`. The result is one object with `name`, `description`, `category`, `assetClass`, `digits`, `pipSize`, `lotSize`, `minVolume`, `maxVolume`, `volumeStep`, `bid` and `ask`: the field set order sizing needs. These values differ from symbol to symbol, so read them for the symbol you work with instead of assuming them.
+
+The result carries no commission and no swap field. Commission and spread are inputs of `backtest` (`--commission`, `--spread`).
 
 ## sessions
 
-Always shell-routed. Call it `sessions --symbol=<name> --account=<n> -e`. Payload: `{"symbolName","timeZone","marketIsAlwaysOpen","sessions":[{"start","end","startSecond","endSecond"}, ...]}`. For EURUSD, five session windows are returned (Sunday through Thursday), each with human-readable `start`/`end` day-and-time strings plus integer `startSecond`/`endSecond` giving seconds-of-week offsets for machine parsing.
+Shell-routed. Call it as `sessions --symbol=<name> --account=<account> -e -q`. The result carries `symbolName`, `timeZone`, `marketIsAlwaysOpen` and `sessions`, a list of trading windows, each with `start` and `end` as day-and-time text and the numbers `startSecond` and `endSecond`. Read `start` and `end` together with `timeZone`.
 
 ## price
 
-Always shell-routed. A bare positional symbol does not work outside the shell; use `price --symbol=<name> --account=<n> -e -q`. Success payload: `{"symbolName","bid","ask","spread","high","low","open"}`. An unknown symbol returns exit 1 with `Error: Symbol not found: NOTASYMBOL. Use 'symbols' to list available symbols.` — note this wording differs from the `candles` unknown-symbol message below; do not assume one canonical unknown-symbol string across market-data commands.
+Shell-routed. Call it as `price --symbol=<name> --account=<account> -e -q`. The result is one object with `symbolName`, `bid`, `ask`, `spread`, `high`, `low` and `open`.
 
 ## prices
 
-Always shell-routed. Call it `prices --symbols=<name1>,<name2>,... --account=<n> -e -q`. Unlike `price` and `candles`, this plural form degrades per symbol inside a still-exit-0 response rather than hard-failing the whole call: `{"results":[{"symbolName":"EURUSD","ok":true,"quote":{...}},{"symbolName":"NOTASYMBOL","ok":false,"error":"Symbol not found: NOTASYMBOL. Use 'symbols' to list available symbols."}]}`. When processing a multi-symbol batch, check the per-item `ok` field rather than relying on the overall exit code.
+Shell-routed. Call it as `prices --symbols=<name>,<name> --account=<account> -e -q`. The result is `{"results": [...]}`, one item per symbol with `symbolName`, `ok` and `quote`, an object with the fields of `price`. Check `ok` on each item and read `quote` only from an item whose `ok` is `true`.
 
 ## candles
 
-Always shell-routed. Use `candles --symbol=<name> --period=<token> --account=<n> -e -q` plus either `--count=<n>` or a `--from=`/`--to=` range.
+Shell-routed. Call it as `candles --symbol=<name> --period=<token> --account=<account> -e -q`, plus either `--count=<n>` or a `--from=<date>` and `--to=<date>` range.
 
-Count form payload: `{"symbolName","timeframe","requested","returned","available","bars":[...]}`. `available` reports the total cached bars for that symbol-and-period pair and varies by timeframe (for example 13999 for EURUSD m1 versus 1296 for D1). **The count form returns at most 1000 bars per call**: requesting `--count=10000` or `--count=1001` both yield `"requested":1000` with no warning. To retrieve more history, page backward or forward through repeated `--from`/`--to` windows; there is no cursor or offset parameter.
+The count form returns `symbolName`, `timeframe`, `requested`, `returned`, `available` and `bars`; each bar carries `timestamp`, `open`, `high`, `low`, `close` and `volume`. `available` reports how many bars exist for that symbol and period. The count form returns at most 1000 bars per call: `--count=1001` answers with `requested` 1000 and no warning. For more history, page through repeated `--from` and `--to` windows; no cursor or offset option exists.
 
-Range form payload has a different shape, without `requested`/`available`: `{"symbolName","timeframe","from","to","returned","bars":[...]}`. Accepted date formats for `--from`/`--to`: `yyyy-MM-dd`, `dd/MM/yyyy` (day-first), and a bare ISO datetime without offset — all three are interpreted as UTC. Omitting `--to` defaults it to the exact invocation instant; the still-open current bar is excluded, so only fully closed bars come back. The `to` bound is inclusive (a 10:00-14:00 window returns exactly 5 hourly bars). A reversed range (`from` after `to`) is rejected at exit 1 with `Error: Invalid parameters: 'from' must be before 'to'.` A closed-market window (a weekend date range) returns exit 0 with `{"returned":0,"bars":[]}` — this, not an error, is how you distinguish "no data in this window" from a malformed request.
+The range form returns `symbolName`, `timeframe`, `from`, `to`, `returned` and `bars`, without `requested` and `available`. `--from` and `--to` take `yyyy-MM-dd` or `dd/MM/yyyy`, and a date without a time is read as midnight UTC. Leaving out `--to` ends the window at the moment of the call; the bar still open is left out, so only closed bars come back. The `to` bound is inclusive. A reversed range ends with exit 1 and `Error: Invalid parameters: 'from' must be before 'to'.` A window with no trading, such as a weekend, returns exit 0 with `"returned": 0` and `"bars": []`: that, not an error, is how an empty window differs from a malformed request.
 
-**Result ordering is always oldest-first ascending**, in both the count and range forms; never assume newest-first. Daily (`D1`) bar timestamps are not midnight UTC — they carry the broker's daily session boundary (`21:00Z` during summer time, `22:00Z` during winter time), so deriving "which calendar day" a bar belongs to from the UTC date component alone will be off by the session-boundary offset.
-
-An unknown symbol returns exit 1 with `Error: Symbol not available: NOTASYMBOL` — worded differently from `price`'s `Symbol not found` message. An invalid period value returns exit 1 with `Error: Invalid timeframe: 'BADPERIOD'.`, a distinct message you can match separately from the symbol-not-found family.
+Bars come oldest first in both forms; never assume newest first. Daily bar timestamps follow the symbol's daily session boundary, not midnight UTC: read the boundary from `sessions` for the symbol before you derive a calendar day from a timestamp.
 
 ## orders
 
-Shell-routed only (no batch code path): the CLI's own `--help` lists `orders` only under interactive commands, never under BATCH MODE. Call it `orders --account=<n> -e -q`. Omitting `-q` still exits 0 eventually under redirected stdin, but the JSON is followed by the full interactive command menu and a `Bye.` line — noise to skip past, not a failure signal. `--account` can be omitted for a cTID with exactly one linked account (the banner then reads `Using your only account: ...` instead of `Using account: ...`), but pass it explicitly for determinism.
+Shell-routed: `--help` lists `orders` among the interactive commands only, never under batch mode. Call it as `orders --account=<account> -e -q`. With exactly one linked account the CLI can use it when `--account` is left out, and the banner then reads `Using your only account: ...` instead of `Using account: ...`; pass `--account` all the same.
 
-Populated payload: `{"orders": [{"id","symbolName","tradeSide","orderType","volume","volumeLots","targetPrice","limitPrice","slippagePips","currentPrice","stopLoss","stopLossPips","takeProfit","takeProfitPips","expiration","label","comment"}, ...]}`. Optional fields are `null` when not set (`limitPrice`, `slippagePips`, `currentPrice`, `stopLoss`, `stopLossPips`, `takeProfit`, `takeProfitPips`, `expiration`).
-
-**Empty-result shape:** `{"orders": []}`, exit 0.
+The empty result is `{"orders": []}`, exit 0. A populated entry can show `targetPrice` (the limit or stop price), `limitPrice`, `slippagePips`, `stopLoss` and `stopLossPips`, among other fields; read the field names from the result.
 
 ## positions
 
-Same routing and call shape as `orders`: `positions --account=<n> -e -q`.
-
-**Empty-result shape:** `{"positions": []}`, exit 0 — the normal case on an account with no open trades. For a populated entry, expect naming by analogy with `orders`/`orders-history` and confirm the exact field set on first use.
+Shell-routed, called like `orders`: `positions --account=<account> -e -q`. The empty result is `{"positions": []}`, exit 0, the normal case on an account with no open trades. A populated entry can show `currentPrice`, `pips`, `grossProfit` and `netProfit`, and the two profit fields can read null on an open position; read the field names from the result.
 
 ## order
 
-Shell-routed only. `order <id>` as a bare trailing positional does **not** work at launch time — that syntax is documented shell-prompt-only in `--commands`' own entry for this verb — and returns exit 1: `Error: 'order' is required. Provide it as a positional argument inside the shell, or pass --order=<value> when launching the command.` The working non-interactive form is `order --order=<id> --account=<n> -e -q`.
-
-A known id returns the order object directly, unwrapped (the same field set as one `orders[]` array element, not wrapped under an `order` key and not array-wrapped): `{"id":312753167,"symbolName":"EURUSD", ...}`.
-
-**Unknown-id shape:** exit 1 with a plain-text, non-JSON line: `Order #999999999 not found.` Do not attempt to JSON-parse stdout unconditionally; check the exit code first, or treat a JSON-parse failure itself as the not-found signal. This lookup is scoped to currently active orders — `order`/`orders` do not search closed or historical orders; use `orders-history` for that.
+Shell-routed. Call it as `order --order=<order-id> --account=<account> -e -q`; read the field names from the result. An id that names no active order ends with exit 1 and a plain-text line, `Order #<order-id> not found.`, not JSON: check the exit code before you parse. The lookup covers active orders only; closed and filled orders are in `orders-history`.
 
 ## position
 
-Shell-routed only, symmetric with `order`. Bare positional fails identically at launch; use `position --position=<id> --account=<n> -e -q`.
-
-**Unknown-id shape:** exit 1, plain text: `Position #999999999 not found.` Like `order`, this lookup is scoped to currently open positions, not closed history.
+Shell-routed. Call it as `position --position=<position-id> --account=<account> -e -q`. The result is one entry of `positions`, without the array. An id that names no open position ends with exit 1 and a plain-text line, `Position #<position-id> not found.` The lookup covers open positions only.
 
 ## exposure
 
-Shell-routed only. Call it `exposure --account=<n> -e -q`. The JSON root key is the plural `exposures`, even though the command itself is singular — do not assume the payload key mirrors the command name.
-
-**Empty-result shape:** `{"exposures": []}`, exit 0. For a populated entry, confirm the exact field set on first use.
+Shell-routed. Call it as `exposure --account=<account> -e -q`. The JSON root key is the plural `exposures`, although the command is singular. The empty result is `{"exposures": []}`, exit 0; for a populated entry, read the field names from the result.
 
 ## orders-history
 
-Shell-routed only; no `<symbol>` positional form exists for this verb (per `--commands`, only bare, `<count>`, and `<from> <to>` forms are defined) — `deals` supports the symbol form but `orders-history` does not. **History subcommands apply only the flags that fit their positional template.** A bare trailing CLI positional (e.g. `orders-history 50` typed at launch) is not applied at all; use the named launch flags `--count=`, `--from=`, `--to=` instead, which the CLI translates internally into the positional template. An unsupported flag for this subcommand, such as `--symbol=`, is silently not applied rather than rejected: `orders-history --symbol=EURUSD --count=5` still runs, and its header line reads plain `orders-history 5` with no trace of the symbol filter. **The echoed header line is exactly how you confirm which filters actually took effect** — read it before trusting the query you think you sent, since `--commands` output alone defines which flags a given history subcommand's template accepts.
+Shell-routed. Call it as `orders-history --count=<n> --account=<account> -e -q`, or with `--from=<date>` and `--to=<date>` instead of `--count`. `--commands` lists only a count form and a date-range form for this command, so it takes no symbol filter; `deals` does.
 
-Count-based call (`orders-history --count=<n> --account=<n> -e -q`) returns `{"requested","returned","lookbackDays","orders":[...]}` when the count covers every order in the lookback window, and adds an `available` key — `{"requested","returned","available","lookbackDays","orders":[...]}` — when more orders exist in the lookback window than were returned (for example `--count=3` against 4 matching orders returns `"available": 4`, while a call whose count covers every matching order, or an empty history, omits the key). Default `requested` is 100 when `--count` is omitted; `lookbackDays` reports the lookback window (30) and appears only in this count-based envelope.
+`deals` returns at most 200 deals and `orders-history` at most 500 orders per call. Without `--from` or `--to` they cover the last 30 days. `--count` is 50 by default for `deals` and 100 for `orders-history`, and it is ignored when `--from` or `--to` is given. The result reports what was applied: `requested`, `returned`, `available` (when more exist) and `lookbackDays` in the count form of `orders-history`, `count` in `deals`; read them instead of assuming the count you asked for.
 
-Range-based call (`orders-history --from=<date> --to=<date> --account=<n> -e -q`) returns a different envelope: `{"from","to","returned","available","orders":[...]}` — no `requested`/`lookbackDays` here, and `available` is present unconditionally rather than only on truncation. Dates without an explicit offset are interpreted as UTC (`2026-08-01` becomes `"2026-08-01T00:00:00.000Z"`).
+The count form returns `requested`, `returned`, `lookbackDays` and `orders`, and adds `available` when more orders exist in the window than it returned; for the range form, read the field names from the result. Each order can carry `id`, `symbolName`, `tradeSide`, `orderType`, `status`, `volume`, `volumeLots`, `executedVolume`, `executedVolumeLots`, `targetPrice`, `executionPrice`, `stopLoss`, `takeProfit`, `positionId`, `openTime`, `closeTime`, `expiration`, `label` and `comment`. Times are ISO 8601 in UTC with a trailing `Z`.
 
-Each order object in either envelope carries: `id`, `symbolName`, `tradeSide`, `orderType`, `status`, `volume`, `volumeLots`, `executedVolume`, `executedVolumeLots`, `targetPrice`, `executionPrice` (null when never filled), `stopLoss`, `takeProfit`, `positionId` (null when never filled, the cross-reference to a resulting position once filled), `openTime` (ISO-8601 UTC with a trailing `Z`), `closeTime` (null while still open), `expiration`, `label`, `comment`. A `--to` bound resolving to midnight of the current day can fail to exclude still-open orders opened later that same day; a range entirely outside the data window returns an empty result. If you need a strict upper bound on `openTime`, filter client-side rather than relying solely on `--to`.
-
-**Empty-result shape:** an empty `orders` array with the surrounding envelope keys still present (for example `returned: 0`), exit 0 — never an error.
+The header line before the result restates the command as it ran: after `--count=600` it shows the count it applied, 500. Read it to confirm which filters took effect.
 
 ## deals
 
-Shell-routed only. Unlike `orders-history`, `deals` supports every positional combination per `--commands`: bare, `<count>`, `<symbol>`, `<symbol> <count>`, `<from> <to>`, `<symbol> <from> <to>`. As with `orders-history`, bare trailing positionals typed at launch (`deals 50`) are not applied — use `--count=`, `--symbol=`, `--from=`, `--to=` instead, and check the echoed header line (e.g. `deals EURUSD 2026-08-01 2026-08-05`) to confirm which filters took effect.
+Shell-routed. Call it as `deals --account=<account> -e -q`, with `--symbol=<name>`, `--count=<n>`, or a `--from=<date>` and `--to=<date>` range, and a symbol together with a count or a range. The limits under `orders-history` apply.
 
-**Empty-result shape:** count-only or bare calls return `{"deals": [], "count": 0}`; a range call adds echo keys, `{"from":"...","to":"...","deals":[],"count":0}` — the `from`/`to` keys appear only when a range was supplied. For a populated entry, confirm the exact field set against a real deal before scripting against it.
+The result carries `deals` and `count`; the range form adds `from` and `to`, which echo the dates given, a date without a time shown as midnight UTC (`<date>T00:00:00.000Z`). Read when each deal happened from its own `time`. Each deal can carry `orderId`, `positionId`, `symbolName`, `dealType`, `side`, `filledVolume`, `filledVolumeLots`, `executionPrice`, `entryPrice`, `pips`, `grossProfit`, `commission`, `swap`, `netProfit`, `label`, `comment` and `time`.
+
+The header line restates the filters the command applied; after `--count=500` it shows the cap, 200. Read it before you trust the query you meant to send.
 
 ## alerts
 
-Shell-routed only. Call it `alerts --account=<n> -e -q`.
-
-**Empty-result shape:** `{"alerts": []}`, exit 0.
-
-Populated payload: `{"alerts": [{"id","symbolName","price","condition","conditionType","quoteType","message"}, ...]}`. `condition` is the human-facing string (`above`/`below`); `conditionType` is the internal enum name (`GreaterOrEqual`/`LessOrEqual`); `quoteType` reports the quote side (`Bid`); `message` is always present, an empty string when none was supplied at creation.
+Shell-routed. Call it as `alerts --account=<account> -e -q`. The empty result is `{"alerts": []}`, exit 0. A populated entry can show `symbolName`, `price`, `condition`, `conditionType`, `quoteType` and `message`: `condition` is the word given at creation (`above` or `below`), `conditionType` the comparison stored for it (`GreaterOrEqual` for `above`), `quoteType` the price the alert compares (`Bid`), and `message` the label. Read the field names from the result.
 
 ## indicators
 
-Batch-style discovery call, shell-routed: `indicators -e -q`. This is the sole discovery mechanism for valid indicator names. Payload: `{"indicators":[{"title","kind"}, ...],"count":88}`. Of the 88 entries, 87 carry `"kind":"BuiltInIndicators"` and one (`"Bar Sample"`) carries `"kind":"Indicator"`. The `title` string is the exact token to pass as `--indicator=` to other indicator subcommands.
+Shell-routed. Call it as `indicators --account=<account> -e -q`. The result is `{"indicators": [...], "count": <n>}`, each entry with `title` and `kind`. This is the way to discover indicator names: `title` is the exact text `--indicator=` takes on the other indicator commands. The list differs between builds, so read it on the build you use.
 
 ## indicator parameters
 
-Call it `indicator parameters --indicator="<title>" -e -q`, using the exact `title` string from `indicators`. A bare positional indicator name (even quoted) does not work: `indicator parameters "Simple Moving Average" -e` returns exit 1, `Error: 'indicator' is required. Provide it as a positional argument inside the shell, or pass --indicator=<value> when launching the command.`
+Shell-routed. Call it as `indicator parameters --indicator="<title>" --account=<account> -e -q`, with the exact `title` from `indicators`. The result is `{"indicator": "<title>", "parameters": [...]}`, each parameter with `name`, `friendlyName`, `type`, `groupName`, `description` and `defaultValue`. For `Simple Moving Average` the parameters are `Source` (type `DataSeries`, whose `defaultValue` is an object that names `Close` in `friendlyName`), `Periods` (type `Integer`, default 14) and `Shift` (type `Integer`, default 0).
 
-Success payload: `{"indicator":"<title>","parameters":[{"name","friendlyName","type","groupName","description","defaultValue"}, ...]}`. For Simple Moving Average, the three parameters are `Source` (type `DataSeries`, default `Close`), `Periods` (type `Integer`, default `14`), and `Shift` (type `Integer`, default `0`).
+`name` is the token a `--ind-params=<name>=<value>,...` override takes on the other indicator commands. Take it from this result, not from the generic example in `--help`, which shows `Period=20`: the parameter of `Simple Moving Average` is `Periods`. Names vary per indicator, so call `indicator parameters` for the indicator you work with.
 
-The `name` field is the token to use in a `--ind-params=<name>=<value>,...` override on other indicator commands; resolve it here rather than trusting the CLI's own generic `--help` text, which illustrates the override syntax with a singular `Period=20` example — the real name for Simple Moving Average is plural `Periods`. Always call `indicator parameters --indicator=<title>` first to get the exact name for the indicator you are working with, since names vary per indicator.
+## indicator calculate and indicator history
+
+`indicator calculate` asks for an indicator's current value and `indicator history` for its values over the last `--count` bars: `indicator calculate --indicator="<title>" --symbol=<name> --period=<token> [--ind-params=<name>=<value>,...] --account=<account> -e -q`; `indicator history` takes the same options plus `--count=<n>`. Take `<title>` from `indicators` and parameter names from `indicator parameters`. The call returns the values, or it can end with exit 1 and an `Error:` line that names an exception, with no values; in that case report the `Error:` line to the user. Read the field names from the result.

@@ -1,142 +1,157 @@
 ---
 name: ctrader-mcp-servers
-description: Use this skill ALWAYS when working with any cTrader MCP server.
-allowed-tools: "Read, Grep, Glob, Bash(python *)"
-compatibility: "Requires Python 3.12+ on PATH for the bundled scripts in scripts/. Scripts use the Python standard library only; no third-party packages are required."
+description: "Use this skill ALWAYS when working with any cTrader MCP server, and load it before the first call to any of its tools: the Remote MCP server, a hosted service that reads and trades a cTrader account, or the Local MCP server inside the running cTrader desktop app. It covers quotes, trend bars, balance, positions, pending orders, deals and order history; placing, changing and closing trades; and, on the Local server, charts, indicators, drawings, watchlists, price alerts, workspaces and cBots. Use it also when the user names cTrader, a cTrader account or a cTrader chart without saying MCP."
+allowed-tools: "Read, Grep, Glob, Bash(python3 *conversion_rate.py*), Bash(python *conversion_rate.py*), Bash(py *conversion_rate.py*), Bash(python3 *pip_math.py*), Bash(python *pip_math.py*), Bash(py *pip_math.py*), Bash(python3 *position_sizing.py*), Bash(python *position_sizing.py*), Bash(py *position_sizing.py*), Bash(python3 *tiered_margin.py*), Bash(python *tiered_margin.py*), Bash(py *tiered_margin.py*), Bash(python3 *units_encoding.py*), Bash(python *units_encoding.py*), Bash(py *units_encoding.py*)"
+compatibility: "Requires Python 3.11 or later for the bundled scripts in scripts/, standard library only. Run them with python3 on macOS and Linux, and with python on Windows, or py where python is not on the path."
 license: Proprietary. LICENSE.txt has complete terms.
 metadata:
   author: "Spotware Systems Ltd"
-  quirks_registry_min_build_remote: "rest-proxy 1.0.18"
-  quirks_registry_min_build_local: "local build observed-on 2026-05-14"
-  last_full_audit_date: "2026-05-14"
 ---
 
-## Top-5 critical quirks (inline teaser)
+## The two servers
 
-The following 5 quirks are the most consequential as of the audit date. Full Detect / Workaround / Verify-fixed / Removal-criteria content lives in `references/known-quirks.md`; the rows below are link-only teasers. See also `references/self-healing-playbook.md` for the named recovery patterns.
+- The Remote MCP server is a hosted service with two profiles: the data profile reads an account, and the trading profile also places, changes and closes its orders and positions.
+- The Local MCP server runs inside the cTrader desktop app (Windows or Mac) while the app runs and is logged in. It acts on the account the app is logged in to and on the app's screen: charts, indicators, drawings, watchlists, alerts, workspaces and cBots.
 
-| Quirk | Server | One-liner                                                                                                                     | Link                                      |
-|-------|--------|-------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------|
-| Q-R10 | remote | `amend_position` omitting a leg REMOVES it (not preserves it)                                                                 | [Q-R10](references/known-quirks.md#q-r10) |
-| Q-R4  | remote | MARKET REJECTS absolute SL/TP — use `relativeStopLoss`/`relativeTakeProfit` (single call) or P-REMOTE-MARKET-2STEP (fallback) | [Q-R4](references/known-quirks.md#q-r4)   |
-| Q-R1  | remote | `period` enum is 9 values, NOT 26 (delete granular claims)                                                                    | [Q-R1](references/known-quirks.md#q-r1)   |
-| Q-L2  | local  | SL is absolute price, TP is raw pips (asymmetric `get_pending_orders`)                                                        | [Q-L2](references/known-quirks.md#q-l2)   |
-| Q-K19 | both   | Pipettes vs display foot-gun — silent market fills                                                                            | [Q-K19](references/known-quirks.md#q-k19) |
+## Which server is connected
 
-## Self-healing principle
+Tell the servers apart by the tool names only one of them serves:
 
-Both `ctrader-remote-mcp` and `ctrader-local-mcp` ship as-is with documented runtime behaviors last re-verified on 2026-05-14 against `rest-proxy 1.0.18` (Remote) and local build observed-on 2026-05-14 (Local). Six Remote quirks remain ACTIVE on 1.0.18 (Q-R1, Q-R2, Q-R3, Q-R5, Q-R8, Q-R10). Two quirks had their error-message format refined (Q-R4 and Q-R7 now return plain-string error envelopes with actionable hints instead of JSON envelopes — both DETECT signatures cover both formats). One quirk is likely fixed (Q-R11 — `get_deals` propagation lag — passed Verify-fixed on session 1 of 5; not yet removed pending 4 more confirmations). This skill describes SEMANTICS, GOTCHAS, and RECOVERY; the MCP JSON-Schema is the source of truth on SHAPE. Never duplicate schema content in this skill. Every claim about runtime behavior in this skill carries a build-stamp — either an `as-of:` header on a reference file, or an `Observed-on:` line on a quirk in `references/known-quirks.md`.
+- Remote only: `get_session_status`, `get_version`, `get_assets`, `get_position_details`, `get_order_by_client_order_id`, `create_order`, `create_order_link`, `close_position_link` and `cancel_order_link`.
+- Local only: `get_accounts_list`, `get_symbol_details`, `get_server_time`, `calculate_margin`, `list_charts`, `listPlugins`, `show_notification`, `place_market_order`, `place_limit_order`, `place_stop_order` and `place_stop_limit_order`.
+- Both: `get_balance`, `get_symbols`, `get_spot_prices`, `get_trendbars`, `get_positions`, `get_pending_orders`, `get_order_history`, `get_deals`, `amend_order`, `amend_position`, `cancel_order` and `close_position`. These names prove nothing about the server.
 
-Every quirk in the ledger is self-deprecating: it carries a `Verify-fixed` probe (a session-local check the agent can run) and a `Removal criteria` condition (the explicit signal that the server has been fixed and the entry should be deleted). When the server is fixed, delete the matching entry from `references/known-quirks.md` — that is the entire cleanup cost. Optional follow-up: `grep` for any stale QUIRK breadcrumbs across the reference files and remove them.
+No Local tool exists only to test the connection; the first read of a session shows whether the server answers.
 
-On unexpected server behavior (anything deviating from BOTH the MCP JSON-Schema AND the ledger), do NOT improvise — follow `references/self-healing-playbook.md`. The playbook names the pre-flight gates (quote sanity, side-direction, SL/TP sidedness, volume-step, schema-fields-only, pipettes-vs-display detection, required-fields), the post-flight verification rules (re-read after every mutation; for Remote `amend_position`, always re-read to confirm BOTH SL and TP legs survived per Q-R10), the error-classification matrix (Zod / INVALID_REQUEST / 502 uProxy / plain-text Local / available:false / truncated / hasMore), the unknown-quirk decision tree (4 steps from STOP to provisional ledger entry), and the named patterns (P-AMEND-SAFE, P-REMOTE-MARKET-RELATIVE (preferred for MARKET+SL/TP), P-REMOTE-MARKET-2STEP (fallback for absolute-price SL/TP on MARKET), P-REMOTE-MARKET-RANGE, P-LOCAL-OLDEST-FIRST, P-REMOTE-HISTORY-CHUNK).
+When both servers are connected, take each call's server from the client's tool list, and never carry a value from one server's answer into the other server's call without converting it by the table in the next section.
 
-## Per-broker overlay extension point
+Route the work by what each server can do:
 
-The skill's quirks ledger uses the `Q-B<n>` prefix as a reserved slot for future per-broker overrides (lotSize divergences, symbol-naming variants, broker-specific SL/TP behaviors). A future `assets/broker_overrides.example.json` overlay would carry these per-broker values without restructuring this skill. **NOT shipped this iteration** — added on demand when broker-specific divergences become a blocking class.
+| Work | Server |
+| --- | --- |
+| Charts, indicators, drawings, watchlists, price alerts, workspaces, cBots, news, app sections and notifications | Local only |
+| Margin for a planned order, a symbol's lot size and volume limits, account statistics, server time and trading sessions | Local only |
+| Session status, trade links the trader opens in cTrader, the lookup of an order by `clientOrderId`, market-range orders, trailing stop | Remote only |
+| Account, quotes, trend bars, positions, pending orders, deals and order history | Either |
 
-## Tool-surface routing: Local HTTP (`ctrader-local-mcp`) vs Remote HTTP (`ctrader-remote-mcp`)
+## Units on each server
 
-The bound tool surface determines which cTrader MCP server is in front of you. Inspect tool names and response DTO shape to identify the family. Apply the routing rule below at the start of every cTrader-related interaction; cache the result for the session.
+| Value | Remote | Local |
+| --- | --- | --- |
+| Symbol identifier | `create_order`, `create_order_link`, `get_spot_prices` and `get_trendbars` take `symbolName` in place of the numeric `symbolId`, exactly one of the two (`get_spot_prices` takes ids, names or both), and match the name exactly, case included. | `symbolName`, the exact name `get_symbols` lists, case included. |
+| Volume | `volume` = lots x lot size x 100, in 1/100 of the base asset. At the class lot sizes the server's text gives, one forex lot is 10000000, one XAUUSD lot 10000, one index or crypto lot 100. These class values are typical; the broker's value for the symbol decides. | `volume` is a decimal in the unit `volumeType` names, `lots` or `units`; `minVolume`, `maxVolume` and `volumeStep` are in units. |
+| Quote prices | Quotes from `get_spot_prices` and `get_trendbars` are integers in 1/100000 of price for every symbol: display price = value / 100000 (a USDJPY bid of 15731000 is 157.31). The symbol's `digits` and `pipPosition` play no part in this scale. | The prices of `get_spot_prices` and `get_trendbars` are decimal prices as the trader sees them; `spread` is in pips. |
+| Order, position and deal prices | Order, position and deal prices (`limitPrice`, `stopPrice`, `stopLoss`, `takeProfit`, `baseSlippagePrice`, `entryPrice`, `executionPrice`) are display prices: send and read them as the trader sees them. | Order, position and deal prices are decimal prices as the trader sees them. |
+| Protections when placing | `relativeStopLoss` and `relativeTakeProfit` are distances in 1/100000 of price, whatever the symbol's digits: value = price distance x 100000, a multiple of 10^(5 - digits). A 30-pip stop on EURUSD is 300; a 5.00 stop on XAUUSD is 500000. MARKET and MARKET_RANGE take relative distances only; pending orders take absolute prices, the preferred form, or relative distances; `amend_order` takes either form. | `stopLossPips` and `takeProfitPips`, distances in pips of the symbol's `pipSize`, on the placement tools and on `amend_order`. |
+| Protections on a position amend | `amend_position` takes absolute prices. A protection leg that is omitted is removed, and omitting `advancedTakeProfit` removes every Advanced Take Profit level. | `amend_position` takes absolute prices; an omitted leg stays as it is. |
+| Money | `balance`, `equity` and `freeMargin`, and the commission, swap and profit fields of positions and deals, are integers in minor units of the deposit currency: amount = value / 10^`moneyDigits`. | Money values are decimals in the account currency. |
+| Request timestamps | `fromTimestamp` and `toTimestamp` are strings: epoch milliseconds as digits or ISO 8601 with a zone. Date-only, zone-less and epoch-second values are refused. `expirationTimestamp` is an integer in epoch milliseconds. A period that ends now, such as the last 30 days, ends at the current time: a `toTimestamp` at 00:00 of the current date leaves out that day. | ISO 8601 UTC with `Z`. |
+| Demo or live | `environment` of `get_session_status`. | `isLive` of the account's item in `get_accounts_list`. |
 
-| Server family                      | Fingerprint to detect it                                                                                                                                                                                                                                                                      | What it does best                                                                                     | Default routing rule                                                                                                                                    |
-|------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Local HTTP (`ctrader-local-mcp`)   | `ping`, `get_accounts_list`, `list_charts`, `listChartIndicators`, `listPlugins`, `show_notification`, `get_server_time`; volume in units; ISO 8601 with mandatory `Z`; symbol identified by string name (`"EURUSD"`). HTTP transport bound to the cTrader Desktop application.               | Charts, drawings, indicators, watchlists, alerts, news, cBots, UI notifications, multi-account work.  | Route here for any UI / visualization / cBot / chart-bound workflow.                                                                                    |
-| Remote HTTP (`ctrader-remote-mcp`) | `get_version`, `get_assets`, integer `symbolId`-keyed tools (`get_spot_prices(symbolId)`, `get_trendbars(symbolId)`); `moneyDigits` field in money responses; volume in cents (1 lot of forex = 10 000 000); prices in pipettes. HTTP transport against the remote REST proxy (`rest-proxy`). | Headless trading, broad symbol scans, trailing stop loss, `MARKET_RANGE`, granular timeframe history. | Route here when no chart / UI need exists.                                                                                                              |
-| Both surfaces bound                | Both fingerprints visible.                                                                                                                                                                                                                                                                    | Depends on the action.                                                                                | Pick by capability: drawings / cBots / charts go to Local; trailing SL / `MARKET_RANGE` / multi-symbol batch quotes / granular timeframes go to Remote. |
+## Reference files
 
-## Units conventions across the two servers
+Read the files the task needs before the first call of that kind:
 
-The two servers encode the same trading concepts in **different units and identifier types**; passing Local values to Remote (or the reverse) silently produces wrong sizes, wrong prices, or schema rejections.
+| Task | Files |
+| --- | --- |
+| Remote quotes, trend bars, account, positions, orders and history | `references/remote-data.md` |
+| Remote trading, or a trade proposed through a link | `references/remote-data.md`, `references/remote-trading.md`, and `references/trading-math.md` when sizing |
+| Local quotes, trend bars, account, positions, orders and history | `references/local-data.md` |
+| Local trading | `references/local-data.md`, `references/local-trading.md`, and `references/trading-math.md` when sizing |
+| Local chart or app work | `references/local-data.md`, `references/local-app.md` |
+| A Local trade drawn on a chart | `references/local-data.md`, `references/local-trading.md`, `references/local-app.md` |
+| Pips, sizing, margin, conversion, profit and loss, swap on either server | `references/trading-math.md` |
+| Both servers connected | The files of each server the task touches |
 
-| Dimension                                                  | Local HTTP encoding                                                                                                          | Remote HTTP encoding                                                                                                           | Conversion script                                                |
-|------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------|
-| Volume                                                     | Units (integer; for forex typically 1 lot = 100 000 units, but broker-dependent — always read `get_symbol_details.lotSize`). | Cents (integer; 1 lot of forex = 10 000 000 cents).                                                                            | `scripts/units_encoding.py lots-to-units` / `lots-to-cents`      |
-| Price                                                      | Display value (e.g., `1.21345`).                                                                                             | Pipettes (integer; divide by `10^pipDigits` to display).                                                                       | `scripts/pip_math.py` (handles both directions)                  |
-| Money (balance, commission, swap, P&L)                     | Display value (e.g., `12345.67`).                                                                                            | Integer in `10^moneyDigits` units (`moneyDigits` field on the response; typically 2).                                          | `scripts/units_encoding.py display-money` / `parse-money`        |
-| Timestamp                                                  | ISO 8601 with mandatory `Z` suffix (`2026-01-15T14:30:00Z`).                                                                 | Epoch milliseconds for `expirationTimestamp` (integer-only as of rest-proxy 1.0.13); either form for history window endpoints. | Passed through unchanged for Local; check field type for Remote. |
-| Symbol identifier                                          | String name (`"EURUSD"`, `"XAUUSD"`).                                                                                        | Integer `symbolId` (resolve via `get_symbols`, cache for the session).                                                         | N/A (look up by ID)                                              |
-| Stop loss / take profit on `place_*_order` / `amend_order` | Pip distance integer (`stopLossPips`, `takeProfitPips`).                                                                     | Absolute price (`stopLoss`, `takeProfit`).                                                                                     | `scripts/pip_math.py pips-to-price` / `price-to-pips`            |
+Each recipe is a heading in the file of its server:
 
-## Stop loss and take profit: pip distance vs absolute price
+| The user asks for | Recipe | Remote | Local |
+| --- | --- | --- | --- |
+| The positions and pending orders of the account | Book snapshot | `references/remote-data.md` | `references/local-data.md` |
+| More bars or history than one call returns | History and bars over a long window | `references/remote-data.md` | `references/local-data.md` |
+| A look at a symbol and the account before a trade | Pre-trade snapshot | `references/remote-data.md` | `references/local-data.md` |
+| Which symbol is cheaper to trade | Cost comparison by spread | `references/remote-data.md` | `references/local-data.md` |
+| A new position | Open a position | `references/remote-trading.md` | `references/local-trading.md` |
+| A new stop loss or take profit | Change protections | `references/remote-trading.md` | `references/local-trading.md` |
+| Closing everything, a part, or the whole book | Close all or part, flatten | `references/remote-trading.md` | `references/local-trading.md` |
+| A size for a given risk | Position size from risk | `references/trading-math.md` | `references/trading-math.md` |
+| A trade's risk and reward on a chart | Draw a trade's risk and reward | none | `references/local-app.md` |
 
-Order-placement tools take SL / TP as **pip distance from entry**; position-amendment tools take SL / TP as **absolute price**. The convention depends on which TOOL is called, not which server.
+## Rules for every call
 
-| Tool                                                                                    | Server | SL / TP form                                                                                                                                |
-|-----------------------------------------------------------------------------------------|--------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| `place_market_order`, `place_limit_order`, `place_stop_order`, `place_stop_limit_order` | Local  | Pip distance (`stopLossPips`, `takeProfitPips`).                                                                                            |
-| `amend_order` (pending order)                                                           | Local  | Pip distance (`stopLossPips`, `takeProfitPips`).                                                                                            |
-| `amend_position` (open position)                                                        | Local  | Absolute price (`stopLoss`, `takeProfit`).                                                                                                  |
-| `create_order`                                                                          | Remote | Absolute price (`stopLoss`, `takeProfit`). See `references/remote-http-server.md` for MARKET-order SL/TP rejection (P-REMOTE-MARKET-2STEP). |
-| `amend_order`                                                                           | Remote | Absolute price (`stopLoss`, `takeProfit`).                                                                                                  |
-| `amend_position`                                                                        | Remote | Absolute price (`stopLoss`, `takeProfit`).                                                                                                  |
-| `close_position`                                                                        | Both   | N/A (no SL / TP parameter).                                                                                                                 |
+- The tool's served description and input schema decide its names, required fields, enum values, defaults and caps. Read a tool's schema before its first call in a session; where it differs from this skill, follow the schema and tell the user.
+- Take every id from the server's answers, never from an example. Examples in this skill show placeholders such as `<position-id>` and `<order-id>`.
+- When an answer differs from what this skill describes, stop: show the user the request and the answer, follow the served text, and do not retry in a loop.
+- On any build of either server, also after a server update, the served tool list and schemas decide which tools exist and how each is called.
 
-When the user says "SL 30 pips below entry", convert to the form the target tool needs by running `scripts/pip_math.py`. Input: `--pip-size <float> --digits <int> --reference-price <float> --pips <int>`. Output: `{"absolute_price": <float>, "pip_size_used": <float>}`. The script handles both directions.
+## Before and after an order-changing call
 
-## Dynamic-leverage margin calculation
+The order-changing tools are `create_order`, `amend_order`, `cancel_order`, `amend_position` and `close_position` on Remote, and `place_market_order`, `place_limit_order`, `place_stop_order`, `place_stop_limit_order`, `amend_order`, `amend_position`, `close_position`, `close_position_partial`, `close_all_positions`, `cancel_order` and `cancel_all_pending_orders` on Local. The Remote link tools `create_order_link`, `close_position_link` and `cancel_order_link` execute nothing and need no confirmation; never report their action as done.
 
-Brokers apply **dynamic-leverage tiers**: leverage falls as the exposure grows past tier upper bounds. Required margin is computed PER TIER and summed. Tier exposure volumes are stated in **USD** regardless of the traded symbol; the resulting margin in USD is then converted to the account currency.
+Every order-changing call goes through the steps below. Step 3 ends the reply with a question unless the user's message already states that the exact steps are confirmed, so the first order-changing call of a request usually waits for the user's next message.
 
-> **Example.** Account currency USD. Order: 1 000 000 EURUSD long @ 1.21345. Notional in USD = 1 000 000 × 1.21345 = 1 213 450 USD. Tier curve: 1:500 up to 1 000 000 USD, 1:200 from 1 000 000 to 5 000 000 USD, 1:100 above 5 000 000 USD. Margin = (1 000 000 / 500) + (213 450 / 200) = 2 000 + 1 067.25 = **3 067.25 USD**.
+Before the call:
 
-Invoke `scripts/tiered_margin.py compute` to compute this for arbitrary tier curves. Input: `--volume-base-units <int> --quote-rate-usd <float> --tiers '[{"upper":1000000,"leverage":500},{"upper":5000000,"leverage":200},{"upper":null,"leverage":100}]'`. Output: `{"margin_usd": <float>, "per_tier_breakdown": [...]}`. Convert the USD margin to the account currency with `scripts/conversion_rate.py compute-chain`.
+1. Read whether the account is demo or live, from the source the units table names.
+   - On Remote, `get_session_status` also reports the profile: the order tools exist only on a trading-profile connection, and on a data profile, propose the trade through the link tools (`references/remote-trading.md`).
+   - On Local, when `get_accounts_list` lists more than one account, or its one account differs from `get_balance`, ask the user which account the app is on before trading (`references/local-data.md`).
+2. Check the request:
+   - Current state: read what the call changes first, the position or the pending order it amends, closes or cancels, with the reads step 4 names.
+   - Quote sanity: read the current quote right before the call and compare every price of the request with it. Before comparing an order price with the market, divide a Remote quote by 100000; Local quotes are already display prices. A price far from the quote goes back to the user, with the quote, before anything is sent.
+   - Side against the market: a buy limit sits below the current ask and a buy stop above it; a sell limit sits above the current bid and a sell stop below it. A price on the other side means the order type or the side differs from what the user wants: ask, and never change the type or the side yourself.
+   - Protections on the right side: a buy's stop loss below its entry and take profit above it, a sell's the other way round. Check a long position's new stop loss against the current bid, not the entry. Show the user a level on the wrong side; never correct it yourself.
+   - Price digits: every price carries at most the symbol's `digits` decimals (`get_symbols` on Remote, `get_symbol_details` on Local). Round it before sending; the Remote server refuses more decimals and rounds nothing.
+   - Volume: on Local, check the size in units against `minVolume`, `maxVolume` and `volumeStep` with `units_encoding.py check-volume`; the Remote server serves no volume step or minimum. A size off the grid or outside the limits, and a volume a server refuses, goes back to the user; never round or change it yourself.
+   - Fields the order type needs: read the trading file of the server, `references/remote-trading.md` or `references/local-trading.md`, when this session has not read it yet. Every field it and the tool's schema require for this order type is present; ask the user for a missing one.
+   - An id of the agent's own on a placement: on a Remote `create_order` a `clientOrderId` that no earlier order carries, a `label` of its own on a Local placement. With it, a placement whose answer never arrives is looked up before anything is sent again. Put the `timestamp` of the quote just read into the `clientOrderId` and call `get_order_by_client_order_id` with it before the call is shown: 404 `ORDER_NOT_FOUND` means the id is free. When an order comes back, the id is taken: add `-2`, then `-3`, and look each up until one is free. The Remote server answers a `create_order` that repeats an earlier `clientOrderId` with that earlier order and places nothing, and a short name, a date, or the `timestamp` of a quote that has not changed is repeated by a later request.
+   - Schema keys only: send no key the tool's schema does not declare.
+3. Show the user the call before it is sent, and get a yes to it:
+   - What to show: the call in the user's terms as well as the tool's. For a placement, the symbol, side, volume, prices and protections; for an amend, the values it sets and the ones it keeps; for a close or a cancel, which position or order it is: a position by symbol, side and entry price, an order by symbol, side and price. Name them again in the message that shows the call, also when an earlier message did: an id alone does not tell the user which position or order is about to go. Say whether the account is demo or live. For an order that carries a stop loss or take profit, add one sentence: a confirmed level that the read-back lacks is set at once to exactly that value. That sentence is what makes the yes cover the one corrective call, which is reported after it: without it, the correction would need a question of its own while the order stands without its protection.
+   - When to ask: before every order-changing call, unless the user's message states that these exact steps are confirmed and that no further question is wanted. A request alone is not that statement, however complete it is: the call is built from what the user had not seen when asking, such as the account's kind, the current quote and the size in the server's unit, and the yes is the user's check of it. To ask, end the reply with the call shown and the question, and make no order-changing call until the user's next message says yes. When the message did confirm in advance, do not ask again, and still show each call this way just before sending it.
 
-## Currency conversion: quote currency vs account currency
+After the call:
 
-When a symbol's quote currency differs from the account currency, every money figure returned by the server (commission, swap, realized P&L, pip value, margin) requires conversion through a **chain of spot rates**. Example chains: P&L on USDJPY for a EUR account requires JPY -> USD -> EUR (using USDJPY and EURUSD); P&L on AUDCAD for an NZD account requires CAD -> USD -> NZD or a direct AUD -> NZD chain. The cTrader backend builds the shortest available chain; replicate that logic locally with `scripts/conversion_rate.py`.
+4. Read the changed order or position back with a read tool before the next order-changing call and before the report, and compare the symbol, side, volume, entry price, stop loss and take profit with what the user confirmed. Do it also when the call's answer already shows the order or position, and after each step when the user confirmed several at once: this read is the state the next call starts from, the source of its ids, of the volume a close sends and of the levels an amend resends.
+   - On Remote: an open position with `get_position_details`, a pending order with `get_pending_orders`.
+   - On Local: a position with `get_positions`, a pending order with `get_pending_orders`.
+   - After a close in full or a cancel, on either server: the list that held it, `get_positions` for a position and `get_pending_orders` for an order, to see that it is gone.
+5. Report a change from the call's response and the re-read, and only what they show. On Remote, when the matching deal is not yet in `get_deals`, say so and read again before calling it missing.
+6. After a partial close, check that the volume left on the position equals the volume before less the volume closed.
+7. A stop loss or take profit the user confirmed that the re-read lacks is set at once to exactly that value, and reported: on a position with `amend_position`, as an absolute price, and on a pending order with `amend_order`. The call carries what the server needs to keep the rest: a Remote `amend_position` resends the other leg and every Advanced Take Profit level, and a Remote `amend_order` resends the order's price field, every protection that stays and its expiration, since an omitted one is removed; a Local `amend_order` takes the level as a pip distance and leaves an omitted field as it is. Anything else that differs waits for the user.
 
-Invoke `scripts/conversion_rate.py compute-chain` to derive the rate. Input: `--from-asset <CCY> --to-asset <CCY> --quotes '{"EURUSD":1.0850,"USDJPY":150.3,...}'`. Output: `{"rate": <float>, "chain": ["EURUSD","USDJPY",...], "warnings": [...]}`. Fetch the quote map up front via `get_spot_prices` for Local (one symbol per call) or `get_spot_prices(symbolId:[...])` for Remote (batched).
+## Scripts
 
-## Hedging vs netting accounts
+The scripts compute from values the agent has read; none of them calls a server.
 
-**Hedging accounts** allow simultaneous long AND short positions on the same symbol (each gets its own `positionId`). **Netting accounts** collapse them: opening the opposite side automatically closes (or partially closes) the existing position to the net delta. Before placing the second leg of a hedge, read the existing position and the account's hedging mode (visible in `get_balance` and account-info responses); if the account is netting, "opening a hedge" is impossible — surface this to the user and propose either a stop-loss adjustment or a full close instead.
+| Script | Subcommand: what it computes | Inputs and their source |
+| --- | --- | --- |
+| `units_encoding.py` | `quote-to-price`: Remote quote integers as display prices | `--values` from Remote `get_spot_prices` or `get_trendbars` |
+| `units_encoding.py` | `lots-to-cents`: lots as the Remote `volume` | `--lots`, `--lot-size`; the Remote server serves no lot size, and `references/remote-data.md` says where it comes from |
+| `units_encoding.py` | `lots-to-units`, `units-to-lots`: lots and Local units | `--lots` or `--units`, `--lot-size` from Local `get_symbol_details` |
+| `units_encoding.py` | `check-volume`: whether a size lies on the volume grid and within the limits; it reports and changes nothing | `--lots` or `--units`, `--lot-size`, `--min-volume`, `--max-volume`, `--volume-step` from Local `get_symbol_details` |
+| `units_encoding.py` | `display-money`: a Remote money integer as an amount | `--raw`, `--money-digits`: the object's own `moneyDigits`, else that of `get_balance` |
+| `pip_math.py` | `pips-to-price`, `price-to-pips`: a level from a pip distance, and a pip distance from a level | `--reference-price`, `--pip-size`, `--digits`: on Local, `--pip-size` and `--digits` from `get_symbol_details`; on Remote, `--digits` from `get_symbols`; use pips only where the symbol's pip size is known, and otherwise give the distance in price |
+| `pip_math.py` | `distance`: a distance in the unit of `relativeStopLoss` and `relativeTakeProfit` and in the points of `slippageInPoints` | `--pips` with `--pip-size`, or `--price-distance`; `--digits` |
+| `position_sizing.py` | `from-risk-percent`, `from-risk-amount`: a size from a risk target, with an optional grid check | `--balance` or `--risk-amount` in the account currency; the stop distance as `--sl-pips` with `--pip-size`, or as `--price-distance`; `--conversion-rate` and `--lot-size`, both required; optionally `--min-volume`, `--max-volume` and `--volume-step` together |
+| `conversion_rate.py` | `compute-chain`: the rate between two currencies through a chain of quotes | `--from-asset`, `--to-asset`, `--quotes` with display prices keyed by symbol name |
+| `tiered_margin.py` | `compute`: a margin estimate over a leverage tier curve | `--volume-base-units`, `--quote-rate-usd` as a display price, `--tiers` |
 
-## Stop-out and margin level
+Run a script by its path in this skill's folder, the folder that holds this SKILL.md, not in the working directory: `python3 <skill folder>/scripts/<name>.py` on macOS and Linux, and `python <skill folder>/scripts/<name>.py` on Windows, or `py <skill folder>/scripts/<name>.py` where python is not on the path. A script prints one line of JSON. Its `--help` lists the flags, and `--self-test` runs the script's own cases and exits 0 when they pass, which checks the script on the interpreter at hand.
 
-Brokers force-close positions when **margin level = (equity / used margin) × 100%** falls to or below the stop-out level (commonly 50% or 30%, broker-set). Two policies exist: **fair** (closes the single position consuming the most margin) and **smart** (closes the smallest set of positions sufficient to restore margin level above the stop-out). Before sizing additional risk, read current equity and used margin; if `(equity − required_new_margin) / used_margin_after_open × 100%` drops below 2× the stop-out level, warn the user before proceeding.
+The Remote `volume` of 0.01 lot of a symbol whose lot size is 100, the class value the server's text gives for metals:
 
-## Swap accrual timing
+```text
+python3 <skill folder>/scripts/units_encoding.py lots-to-cents --lots 0.01 --lot-size 100
+python <skill folder>/scripts/units_encoding.py lots-to-cents --lots 0.01 --lot-size 100
+{"cents":100}
+```
 
-Swap (overnight financing) accrues at **broker server time** rollover (commonly 23:59:59 server time). Many brokers **triple-charge** swap on Wednesday (the Wed -> Thu rollover absorbs the weekend value date for T+2 instruments like forex). When projecting swap over a holding period, multiply by 3 for any Wednesday in the window. Read swap and commission values directly from `get_positions` and `get_deals` responses (they are server-computed); do not re-derive them from rate tables.
+A Local size for a risk of 1 percent of a balance of 10000 in the account currency and a stop 32 pips away, with the values `get_symbol_details` gives for the symbol passed as read (here `pipSize` 0.0001, `lotSize` 100000, `minVolume` 1000, `maxVolume` 10000000 and `volumeStep` 1000) and a conversion rate of 1 for an account in the quote currency:
 
-## Composable trader workflows
+```text
+python3 <skill folder>/scripts/position_sizing.py from-risk-percent --balance 10000 --risk-pct 1 --sl-pips 32 --pip-size 0.0001 --conversion-rate 1 --lot-size 100000 --min-volume 1000 --max-volume 10000000 --volume-step 1000
+python <skill folder>/scripts/position_sizing.py from-risk-percent --balance 10000 --risk-pct 1 --sl-pips 32 --pip-size 0.0001 --conversion-rate 1 --lot-size 100000 --min-volume 1000 --max-volume 10000000 --volume-step 1000
+{"units":31250,"lots":0.3125,"cents":3125000,"cents_rounded_down":false,"risk_currency_amount":100,"on_grid":false,"within_limits":true,"below":{"units":31000,"lots":0.31,"risk_currency_amount":99.2},"above":{"units":32000,"lots":0.32,"risk_currency_amount":102.4}}
+```
 
-Seven end-to-end trader workflows are described step-by-step in `references/trader-workflows.md`. W0 (session bootstrap) auto-runs once at session start; W1–W6 are dispatched by user-intent triggers. When the user request matches any trigger, read `references/trader-workflows.md` and follow the corresponding recipe — do not improvise from scratch.
-
-0. **W0 — Session bootstrap** — auto-runs at session start; identifies server family, probes live build, caches symbol precision baseline from `assets/symbol_precision_table.json`, resolves active account, and sets the idempotency-key prefix. No user trigger needed.
-1. **Position sizing by risk %** — select this recipe when the user asks "how much to buy / sell", "size for N pips SL", "risk X% of my account on this trade", or any sentence combining a risk fraction with a stop-loss distance.
-2. **Pre-trade briefing** — select this recipe when the user asks "should I trade X", "give me a snapshot of X before I enter", "what does X look like right now", or combines symbol-details + price + recent history requests into one ask.
-3. **Cost-of-trading comparison** — select this recipe when the user asks "which is cheaper to trade, A or B", "compare spreads / commissions / swap across symbols", or ranks tradeable instruments by cost.
-4. **Place + visualize a trade with risk/reward annotation** — select this recipe when the user asks "place the trade and show it on the chart", "draw the R:R on EURUSD", and the Local HTTP server is bound (this workflow requires drawings).
-5. **Multi-window historical backfill** — select this recipe when the user asks for more bars than a single `get_trendbars` call returns (1000 cap on Local), e.g., "give me 5000 H1 candles of XAUUSD" or "show me the last year of D1".
-6. **Safe flatten** — select this recipe when the user asks "close everything", "cancel all my orders", "flatten my book", or any request to bulk-close pending orders and open positions on one or more symbols.
-
-## Server-specific reference files
-
-When the bound tool surface includes Local HTTP tools (`ping`, `get_accounts_list`, `list_charts`, `listChartIndicators`, `listPlugins`, `show_notification`, `get_server_time`), read `references/local-http-server.md` for the Local capability map, encoding rules, pagination caps, identifier types, active-chart targeting, drawing-object anchor requirements, and the destructive-operations checklist.
-
-When the bound tool surface includes Remote HTTP tools (`get_version`, `get_assets`, integer `symbolId`-keyed tools, `moneyDigits` in responses), read `references/remote-http-server.md` for the Remote capability map, encoding rules, the 9-value `period` enum, server-side validations, `timeInForce` semantics, `dealStatus` enum, and the cache-discipline rules for `get_symbols`.
-
-When both surfaces are bound, read both files.
-
-## Bundled scripts
-
-Non-trivial computation lives in `scripts/`. Invoke a script whenever the math goes beyond a single multiplication or addition. Every script accepts CLI flags only (non-interactive), prints JSON to stdout, prints diagnostics to stderr, and documents itself via `--help`.
-
-| Script                       | Purpose                                                                                                                                       | Invocation pattern                                                                                                                                                                                         | Output shape                                                                        |
-|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|
-| `scripts/pip_math.py`        | Convert between pip distance and absolute price (display values; operates on both servers' encoding once pipettes are decoded).               | `python scripts/pip_math.py pips-to-price --pip-size 0.0001 --digits 5 --reference-price 1.0850 --pips 30`                                                                                                 | `{"absolute_price": 1.08800, "pip_size_used": 0.0001}`                              |
-| `scripts/position_sizing.py` | Compute order size from a risk-percent or risk-amount target, accounting for pip value and quote -> account-currency conversion.              | `python scripts/position_sizing.py from-risk-percent --balance 10000 --risk-pct 1 --sl-pips 30 --pip-value-per-lot 10 --conversion-rate 1.0`                                                               | `{"units": 33333, "cents": 3333333, "risk_currency_amount": 100.0, "warnings": []}` |
-| `scripts/tiered_margin.py`   | Reproduce cTrader's dynamic-leverage margin formula across a tier curve.                                                                      | `python scripts/tiered_margin.py compute --volume-base-units 1000000 --quote-rate-usd 1.21345 --tiers '[{"upper":1000000,"leverage":500},{"upper":5000000,"leverage":200},{"upper":null,"leverage":100}]'` | `{"margin_usd": 3067.25, "per_tier_breakdown": [...]}`                              |
-| `scripts/conversion_rate.py` | Build the shortest spot-rate chain to convert between two currencies.                                                                         | `python scripts/conversion_rate.py compute-chain --from-asset JPY --to-asset USD --quotes '{"USDJPY":150.3}'`                                                                                              | `{"rate": 0.006653, "chain": ["USDJPY"], "warnings": []}`                           |
-| `scripts/units_encoding.py`  | Convert between display lots and the wire encoding for each server (units / cents); convert between display money and `moneyDigits` integers. | `python scripts/units_encoding.py lots-to-cents --lots 0.1 --lot-size 100000`                                                                                                                              | `{"cents": 1000000}`                                                                |
-
-## Post-order validation loop
-
-After any mutating call (`place_*_order`, `create_order`, `amend_order`, `amend_position`, `close_position`, `cancel_order`), re-fetch the affected entity (`get_positions`, `get_pending_orders`, or `get_position_details`) and verify that volume, side, entry price (for fills), SL, TP, and `dealStatus` match the user's stated intent. If any value mismatches, identify the mismatch class:
-
-- Encoding error -> re-run `scripts/units_encoding.py` or `scripts/pip_math.py` and retry with corrected inputs.
-- Broker rejection (`dealStatus: REJECTED` / `INTERNALLY_REJECTED` / `ERROR`) -> surface the rejection reason from the server response to the user and stop.
-
-Do not assume the order is filled just because the call returned without an exception.
+The size lies off the volume step, so the agent changes nothing and offers the user the nearest sizes below and above it, each with the risk it carries.

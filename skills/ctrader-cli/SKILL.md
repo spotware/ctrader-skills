@@ -1,154 +1,139 @@
 ---
 name: ctrader-cli
-description: Use this skill whenever you drive the cTrader CLI executable (ctrader-cli.exe) from a shell - querying accounts, symbols, prices, candles, orders, positions, deals or exposure; placing, modifying or cancelling orders; managing price alerts; scaffolding, building, backtesting or running cBots and indicators.
-allowed-tools: "Read, Grep, Glob, Bash(ctrader-cli.exe *), Bash(timeout 30 ctrader-cli.exe *), Bash(timeout 60 ctrader-cli.exe *), Bash(timeout 240 ctrader-cli.exe *), Bash(ctrader-cli *), Bash(timeout 30 ctrader-cli *), Bash(timeout 60 ctrader-cli *), Bash(timeout 240 ctrader-cli *), Bash(command -v *), Bash(printenv *)"
-compatibility: "Requires the cTrader CLI on any OS: Windows installs it with `winget install Spotware.cTrader.CLI` (executable ctrader-cli.exe); macOS and Linux install it with Homebrew from the Spotware tap (executable ctrader-cli). Command shapes are written for bash (Git Bash on Windows or any POSIX shell) using the Windows executable name; on macOS and Linux drop the .exe suffix."
+description: "Use this skill whenever you drive the cTrader CLI (`ctrader-cli`; `ctrader-cli.exe` on Windows; also its container image) from a shell: listing accounts and symbols; reading prices, candles, sessions, orders, positions, deals, order history and exposure; placing market, limit, stop and stop-limit orders, modifying or cancelling them, and closing positions; creating and deleting price alerts; calculating indicator values; scaffolding cBots, indicators and plugins; building, backtesting, optimizing, running, listing and stopping cBots."
+allowed-tools: "Read, Grep, Glob, Bash(ctrader-cli.exe *), Bash(timeout 30 ctrader-cli.exe *), Bash(timeout 60 ctrader-cli.exe *), Bash(timeout 240 ctrader-cli.exe *), Bash(ctrader-cli *), Bash(timeout 30 ctrader-cli *), Bash(timeout 60 ctrader-cli *), Bash(timeout 240 ctrader-cli *), Bash(command -v *), Bash(printenv *), Bash(python3 *extract_result.py*), Bash(python *extract_result.py*), Bash(py *extract_result.py*)"
+compatibility: "Requires the cTrader CLI, installed with winget or as the copy bundled with the cTrader desktop application on Windows, from the Homebrew tap on macOS and Linux, or as the container image on any OS with Docker. Commands are written as ctrader-cli; on Windows the executable is ctrader-cli.exe. scripts/extract_result.py needs Python 3.11 or newer and the standard library only, run as python3 (macOS, Linux) or python or py (Windows); the written rule it implements works without Python."
 license: Proprietary. LICENSE.txt has complete terms.
 metadata:
   author: "Spotware Systems Ltd"
-  cli_build_observed: "5.9.0.38"
-  last_full_audit_date: "2026-08-03"
 ---
 
 ## Overview
 
-The cTrader CLI is a headless client for the cTrader platform: accounts and symbols, market data, orders and positions, history, price alerts, and the full cBot lifecycle, all without the desktop UI.
+The cTrader CLI is a headless client for the cTrader platform: accounts and symbols, market data, orders and positions, history, price alerts, and the cBot lifecycle, all without the desktop application.
 
-It offers two invocation pipelines, and choosing the right one is the single most valuable thing to internalize. **Batch** verbs return compact machine-readable payloads for scripting. **Shell-routed** verbs run through the interactive command shell, which reaches a much larger command surface and returns a richer payload. The same verb can be served by either pipeline, and the pipeline you land in determines the JSON casing, the payload wrapper, and which flags are accepted. Everything below exists to make that choice deliberate rather than accidental.
+It reaches its commands by two routes. Batch commands return a payload for scripting. Shell-routed commands run through the interactive command shell, which reaches the full command set. The route a call lands on decides the JSON casing, the payload wrapper and the options the call accepts, so choose it on purpose.
 
-The CLI runs natively on every platform. On Windows it installs with `winget install Spotware.cTrader.CLI` as `ctrader-cli.exe`; on macOS and Linux it installs from the Spotware Homebrew tap (`brew tap spotware/tap https://github.com/spotware/homebrew-tap`, then `brew install spotware/tap/ctrader-cli`) as `ctrader-cli` — the same CLI with identical verbs, flags, and environment variables. Command shapes throughout this skill use the Windows executable name; on macOS or Linux drop the `.exe` suffix and everything else carries over unchanged (`references/setup.md` covers the per-OS credential setup).
+On Windows the CLI installs with `winget install Spotware.cTrader.CLI`, and the cTrader desktop application ships a copy of its own. On macOS and Linux it installs from the Spotware Homebrew tap. A container image runs it on any OS with Docker. `references/setup.md` covers each route.
 
-Behavior described here matches build `5.9.0.38`; re-confirm details that matter on a newer build.
+This skill writes the executable as `ctrader-cli`. On Windows the executable is `ctrader-cli.exe`: type that name where `ctrader-cli` stands.
+
+`ctrader-cli --version` prints the build; `--help` lists the options and `--commands` the commands that build accepts. Builds differ in their options and in some commands; where this skill and `--help` differ, follow `--help`.
 
 ## Invocation discipline
 
-Use this template for every call, adjusting only the timeout:
+Use this template for every call except `periods` and `metadata`, adjusting only the timeout:
 
 ```bash
-timeout 30 ctrader-cli.exe <verb> [flags] -e </dev/null 1>out.txt 2>err.txt; echo "EXIT:$?"
+timeout 30 ctrader-cli <command> [options] -e </dev/null 1>out.txt 2>err.txt; echo "EXIT:$?"
 ```
 
-Each element earns its place:
+- `timeout` bounds every call. Use 30 seconds for data commands and 240 for `build`, `backtest` and `run`.
+- `</dev/null` guarantees termination: with standard input redirected, the process never waits for a prompt.
+- Separate `1>` and `2>` captures, with a unique file name per call, keep the two streams apart. Concurrent sessions on one machine can otherwise overwrite fixed names.
+- Read `$?` directly. A pipe reports the exit status of its last stage, so piping into `head` or `grep` loses the CLI's own code.
 
-- `timeout` bounds every call. Use 30 seconds for data commands and 240 for `build`, `backtest`, and `run`.
-- `</dev/null` guarantees termination. With stdin redirected the process never waits for a prompt; it completes the requested work, reaches end of stream, and exits.
-- Separate `1>` and `2>` captures, with **unique file names per invocation**, keep the payload away from the command echo. Concurrent sessions on a shared machine can otherwise clobber fixed names.
-- Read `$?` directly. A pipe reports the exit status of the last stage, so piping into `head` or `grep` discards the CLI's own code.
+A build can print a line that repeats the command: on standard error, as the first line of standard output, or not at all, depending on the build and the command. It is never the result and never a sign of failure.
 
-Budget roughly 1.5 to 2 seconds of process start-up per call. When you need several read-only results, fold them into one process through piped stdin, which amortizes that cost:
-
-```bash
-printf 'accounts\nsymbols\nq\n' | timeout 60 ctrader-cli.exe -e --account=<n>
-```
-
-Two commands run in 4.1 to 4.4 seconds this way versus 5.1 to 5.8 seconds as separate calls. Blank lines and lines beginning with `#` are ignored, so a piped script may carry comments. Note that a piped session is a shell session: its output arrives in **shell-routed shape** (camelCase, wrapped objects), not batch shape.
+`periods` and `metadata` take no `-e`: both answer it with `Error: Parameter e is not allowed` and exit 1. Call them as `ctrader-cli periods` and `ctrader-cli metadata "<algo>"`; neither needs credentials. Called with `--ctid`, `--pwd-file` and `--account` and no route option, `periods` refuses them: it answers `Error: Parameter <name> is not allowed`, names each refused option, and exits 1.
 
 On Windows, bash consumes backslashes in unquoted arguments, so always double-quote Windows paths: `--report-json="C:\reports\run.json"`.
 
-## Routing: batch verbs and shell-routed verbs
+## Choosing the route
 
-Six verbs have a genuine batch code path: `periods`, `accounts`, `symbols`, `metadata`, `run`, `backtest` — the six that `--help` itself names for BATCH mode. `create` and `build` appear in `--help`'s BATCH MODE reference section, but they execute through the command shell in every invocation shape — banner first, then a camelCase JSON payload, and without `-q` a fall-through into the interactive menu — so call them with `-q`. Everything else is reached only through the command shell.
+| Commands | Call them | Payload |
+| --- | --- | --- |
+| `accounts`, `symbols`, `metadata` | without `-q` | PascalCase JSON |
+| `run`, `backtest`, and `optimize` where `--help` lists it | without `-q` | text; `references/algo-lifecycle.md` describes each |
+| `periods` | bare, with no options | the period tokens as plain text |
+| `create`, `build` | with their named options | a camelCase JSON object |
+| `account`, `account-stats`, `symbol`, `sessions`, `price`, `prices`, `candles`, `orders`, `order`, `positions`, `position`, `exposure`, `orders-history`, `deals`, `alerts`, `indicators`, `indicator`, and every command that changes an order, a position or an alert | with `-q` | camelCase JSON after a banner and a header |
+| `cbots`, `stop` | with `-q` | the result as printed; `references/algo-lifecycle.md` describes both |
 
-`-q` / `--quick` is a **routing flag**, not a quiet flag. Adding it to one of the six batch verbs moves the whole invocation into the shell pipeline, which changes the payload casing, wraps it under a command-name key, prepends a banner and a timestamp header, and can change which flags are accepted.
+Options such as `-q`, `--quick`, `--yes` or `--count` send `accounts`, `symbols` and `periods` to the interactive route; `references/routing-and-output.md` lists them all, with the payload of each route.
 
-| Verb class | Call it | Payload |
-| ------------ | --------- | --------- |
-| Batch data (`accounts`, `symbols`, `metadata`) | **without** `-q` | PascalCase JSON, no banner |
-| Batch streaming (`run`, `backtest`) | **without** `-q` | `backtest`: plain-text progress log, then a final compact PascalCase JSON summary; `run`: streams the algo's output until stopped |
-| Scaffolding (`create`, `build`) | **with** `-q` | camelCase JSON after the banner and timestamp header |
-| Shell-routed (`account`, `account-stats`, `symbol`, `sessions`, `price`, `prices`, `candles`, `orders`, `positions`, `order`, `position`, `exposure`, `orders-history`, `deals`, `alerts`, `alert`, `indicators`, `indicator`) | **with** `-q` | camelCase wrapped under the command name, after a banner |
-| `periods` | bare, **no flags at all** | plain text, no credentials needed |
+`alerts` lists the alerts; `alert create` and `alert delete` change them. No command reads a single alert.
 
-Concrete consequences worth knowing before your first call:
+`ctrader-cli --commands` prints the full shell command reference, with the positional form of every argument, and needs no credentials and no network. The named options of a launch line are in `ctrader-cli --help`.
 
-- `accounts -e` does not accept `--account`; `symbols -e` requires it. The two batch verbs differ deliberately.
-- Batch `symbols` returns `Id`, `Name`, `Description` per entry. The same verb with `-q` returns `name`, `description`, `category`, `assetClass` — it swaps the numeric `Id` for classification fields rather than extending the batch schema, so use batch `symbols` whenever you need symbol ids.
-- `periods` takes no flags whatsoever; passing `-e` to it returns `Error: Parameter e is not allowed`.
-- Shell-routed verbs take their arguments as explicit flags at launch time. `symbol --symbol=EURUSD` works; a bare `EURUSD` positional does not.
-- `-q` is recommended rather than required for shell-routed reads: it skips the command menu that otherwise prints after the payload, keeping stdout minimal for parsing. Without it the call still terminates cleanly under redirected stdin, printing the menu once and then `Bye.` at exit 0.
-- An unrecognized verb routes to the shell menu and exits 0 under closed stdin, so never treat "exit 0" alone as proof the verb you intended actually ran.
+## Finding the result
 
-`ctrader-cli.exe --commands` prints the full shell command reference, needs no credentials and no network, and is the zero-cost way to confirm a verb's exact argument forms.
+Standard output can hold more than the result: log lines before and after it, a line that repeats the command, a banner and a header, and the result printed twice. The result can stand at a different line from one run to the next. Find it by content, never by position: search for a key only the result carries, such as `"Live":` for batch `accounts`, and read the JSON value that holds it. `references/routing-and-output.md` gives the full rule for every shape.
+
+The bundled script `scripts/extract_result.py` applies that rule to a captured file. Its path is relative to the skill's own folder, the one that holds this file:
+
+```bash
+python3 <skill folder>/scripts/extract_result.py --file=out.txt --key=Live
+python <skill folder>/scripts/extract_result.py --file=out.txt --key=Live
+```
+
+Use `python3` on macOS and Linux and `python` on Windows, or `py` where `python` is not on `PATH`. `--key=<name>` prints `{"result": <value>, "line": <n>}`, `--periods` prints the period tokens, and `--message=<text>` prints the first line that starts with the text, such as `Error:`. When no JSON value holds the key and a line is exactly `[]`, the script prints that empty result; it is an empty result only when the command exited 0. When it finds nothing, it prints `{"error": <reason>}` and exits 4. `--help` lists the options, and `--self-test` checks the script on the interpreter at hand. Without Python, apply the written rule.
+
+Backtest figures come from the `--report-json` file. The summary on standard output can print a bare `-` where it has no value.
 
 ## Credentials
 
-Two credential shapes work non-interactively. Prefer the first, which keeps secrets out of the process arguments entirely.
+Two credential forms work without prompts. Prefer the first, which keeps the credentials out of the process arguments.
 
 ```bash
-# Environment-variable credentials: CTID and PWD-FILE are set in the environment.
-timeout 30 ctrader-cli.exe accounts -e </dev/null
+# CTID and PWD-FILE are set in the environment.
+timeout 30 ctrader-cli accounts -e </dev/null
 
 # Explicit credentials.
-timeout 30 ctrader-cli.exe accounts --ctid="<id>" --pwd-file="<path>" </dev/null
+timeout 30 ctrader-cli accounts --ctid="<ctid>" --pwd-file="<path>" </dev/null
 ```
 
-The mapping rule for `-e` is exact: an environment variable is consulted only when its name matches the long option name verbatim, hyphens preserved, compared case-insensitively, and only when `-e` is on the command line. So `CTID`, `PWD-FILE`, and `ACCOUNT` are read; `account` also works; `PWD_FILE` with an underscore is not consulted, and `ACCOUNT_ID` yields `Error: Option account does not exist`. An explicit flag always wins over the matching variable. `--environment-variables` is the long form of `-e`.
+With `-e` (long form `--environment-variables`), an environment variable supplies an option when its name equals the long option name, hyphens kept, in any letter case: `CTID`, `PWD-FILE` and `ACCOUNT` are read. A name with an underscore in place of the hyphen is not read. An option on the command line wins over the matching variable.
 
-`--ctid` identifies the user (the cTrader ID, an email address) in every path; the trading account is selected separately with `--account`. The password file's first line is the password. `--pwd-file` is the flag name; there is no short alias. `--password` belongs to interactive use and should not appear in a scripted invocation.
+In the container image, pass the credentials as options after the image name, with the password file mounted: `--ctid=<ctid> --pwd-file=<path inside the container>`. `references/setup.md` shows the full command.
 
-Never read or print the value of `CTID` or `PWD-FILE`. Check presence and length only, and remember that `PWD-FILE` contains a hyphen, so `$PWD-FILE` does not interpolate it:
+`--ctid` identifies the user (the cTrader ID, an email address); `--account` selects the trading account. The first line of the password file is the password, and `--pwd-file` has no short alias. `--password` belongs to interactive use and has no place in a scripted call.
+
+Never read or print the value of `CTID` or `PWD-FILE`; check presence and length only. A POSIX shell cannot expand a hyphenated name with `$`, so read it with `printenv`:
 
 ```bash
 val="$(printenv 'PWD-FILE')"; echo "PWD-FILE length: ${#val}"
 ```
 
-The shell banner prints the cTrader ID on stdout as `Connecting as <id>...`. Redact it when quoting captured output into reports or anything shared.
+The shell banner prints the cTrader ID on standard output as `Connecting as <ctid>...`. Redact it when you quote captured output.
 
-## Reading the output
+## State-changing commands
 
-Locate the payload structurally, never by a fixed line count or byte offset. Scan for the timestamp header line or the first balanced `{` or `[`; transient connection-retry lines can precede a payload that still arrives successfully.
+These commands change state: `order place-market`, `order place-limit`, `order place-stop`, `order place-stop-limit`, `order modify`, `order cancel`, `position close`, `position close-partial`, `position modify`, `alert create`, `alert delete`, `run` and `stop`.
 
-Batch payloads begin at byte zero: no banner, no header, flat PascalCase JSON. Shell-routed payloads carry a banner of several lines whose wording varies, then a header line of the form `[yyyy-MM-dd HH:mm:ss <local numeric offset>]` echoing the command, then camelCase JSON wrapped under the command name such as `{"orders": [...]}`. That header is local wall-clock time with the machine's own zone offset, which is distinct from timestamps inside the JSON body: those are UTC with a `Z` suffix.
+Send them only to an account that batch `accounts` reports as `"Live": false`, and only after the user has authorized that exact action. `-q`, `--quick`, `--quit`, `--yes`, `-y`, `all` and `--all` can each let a command run without asking, so add them only after that authorization. Never add a trailing `yes` on a launch line: builds read it differently, and it can end the command with exit 1 or confirm it.
 
-Casing therefore follows the pipeline, not the verb. `accounts` returns `Id` and `Balance`; `orders` returns `id` and `volumeLots`. `backtest` is worth singling out: its compact stdout summary is PascalCase (`Equity`, `NetProfit`) while the file it writes for `--report-json` is camelCase (`main`, `equity`, `tradeStatistics`). `build` takes no report flags; its stdout payload is camelCase (`projectPath`, `success`, `errors`).
+Start `run` only when the user asks for that run. The cTrader CLI documentation asks that an AI agent not start `run` on its own: a running cBot acts on the account until it stops. Stopping an instance you started at the user's request is cleanup; any other `stop`, and `stop all`, needs the user's authorization.
 
-Stderr carries the CLI's own echo of the command line on batch-routed calls, on success as well as failure, so its mere presence never signals an error. Shell-routed calls typically leave stderr empty. Because of that split, treat stderr as a hint about which pipeline you reached, and never as a pass/fail signal.
+Before the first order, position or alert command of a session, read `references/trading-write.md` when this session has not read it yet. It holds the steps below in full, with the order types, the volume units, the protection levels and alerts.
 
-Plain-text rather than JSON output comes from `periods`, `--help`, `--commands`, `--version`, confirmation and refusal messages, and not-found messages such as `Order #N not found.`. The timestamp-header rule applies to shell-routed JSON commands only.
+With `-q`, a command skips an option it does not recognize, without a message, and runs with the options it recognizes: an order placed with `--stoploss=` instead of `--sl=` opens without a stop loss. Nothing in the output shows the dropped option, so check the line before it runs and read the entity back after:
 
-Line endings are CRLF on Windows. Numbers are plain JSON numbers, already rounded by the CLI's own formatting, with no locale-dependent separators; the one exception is a zero-trade backtest summary, which renders `AverageTrade` and `ProfitFactor` as a bare `-` token that strict JSON parsers reject.
+1. Run `ctrader-cli --help` before the first state-changing command of the session, and `ctrader-cli --commands` with it: `--help` prints the named options of your build and `--commands` its command words. Build the command from those words and options, spelled exactly as printed.
+2. Check each option against the options `--help` printed: name, hyphens, letter case. Correct or remove any option that listing does not hold before the command runs. For `run`, check each `--<PropertyName>=` override against the `PropertyName` values `metadata` reports instead, case kept.
+3. Put `--account=<account>` on the line, with the number whose batch `accounts` entry you have just read as `"Live": false`. Never run a state-changing command without `--account`.
+4. Read the instrument with `symbol --symbol=<name>` and the state you are about to change with `orders`, `positions` or `alerts`. Before a placement that is the list the new order or position will join, so that the read-back shows what the command added. Write down the values you expect afterwards.
+5. Before each state-changing command, tell the user what it does: for a placement the symbol, side, volume, prices and levels; for a modify, what it sets and what it keeps; for a cancel or a close, which order or position it is: an order by symbol, side and price, a position by symbol, side and entry price; for a delete or a stop, which alert or instance; for `run`, the cBot and its parameters. Do it also when the user's message already authorized the exact action and nothing is asked again. For an order with a stop loss or a take profit, say there that a level which does not apply is set to the authorized value at once.
+6. After the command, find the line that names the account (`Using account: #<account> ...`) and check that it shows the number you passed.
+7. Read the entity back on the same account and compare every value you set with what you wrote down.
+8. When a stop loss or take profit the user authorized did not apply, set exactly that level at once with the matching modify command and tell the user, with the read-back before and after. Any other difference waits for the user: report it and change nothing. Never repeat the original command: it would open a second order or position.
 
-## Exit codes and failure detection
+## Exit codes
 
-| Code | Meaning |
-| ------ | --------- |
-| 0 | Success |
-| 1 | Invalid usage, unrecognized flag, missing required parameter, or a validation error |
-| 81 | Invalid cTrader ID or password |
-| 82 | Account cannot be found |
-| 124 | The external `timeout` ended the process |
-
-Message text is the primary detection signal and the exit code is the branch key. Nonzero codes outside this table exist for further error conditions but are not publicly documented, so read the message rather than assuming a numbered meaning. A wrapper shell can report a different code than a direct invocation, so prefer the message when the two disagree.
-
-Never infer failure from the exit code alone. `build` exits 0 for a successful compile **and** for a failed one: the JSON body's `success` boolean is the authoritative signal, with diagnostics in `errors: [{file, line, column, code, text}]`. `backtest` continues running after printing its summary, so the completion signal is the final JSON summary or the `--report-json` file appearing; a 124 with those artifacts present is a completed run, not a failure.
-
-A non-numeric value for a numeric flag exits 1, but the message shape depends on the flag and the pipeline: `candles --count=abc` returns a clean `Error: Option --count has invalid number: abc` line on stdout, `--account=abc` on batch-routed `symbols` surfaces a `System.FormatException` trace, and `--account=abc` on shell-routed verbs such as `orders` prints `Invalid account number: 'abc'. Expected a numeric login id.` on stderr with no `Error:` prefix. No single stream or prefix covers this class, so validate numeric flag values before invoking.
-
-## Mutating commands
-
-The state-changing verbs are `order place-market`, `order place-limit`, `order place-stop`, `order place-stop-limit`, `order modify`, `order cancel`, `position close`, `position close-partial`, `position modify`, `alert create`, `alert delete`, and `stop`.
-
-**Authorization gate.** On a mutating verb, `-q` *is* the confirmation: it answers the confirmation prompt automatically and the command executes. Because `-q` is also the routine flag for shell-routed reads, it is easy to carry over by habit. Add `-q` to a mutating command only after the user has explicitly authorized that specific action, and only after you have confirmed the target account is a demo account by checking that `accounts` reports `"Live": false`. Never run a mutating command to discover how it behaves.
-
-At a flag-style launch line, `-q` is the confirmation form that applies. `--yes` and `-y` return `Refused: confirmation required` and exit 1. A trailing bare `yes` is shell-prompt syntax; mixing it into a flag-style line ends the process with a `ConsoleInvalidUsageException` usage trace at exit 1. The `all` keyword likewise belongs to the shell prompt; `--help` documents a separate `--all` launch flag — verify it before relying on it.
-
-**Volume is expressed in units by default.** On EURUSD, `--volume=1000` with no `--volume-type`, `--volume=1000 --volume-type=units`, and `--volume=0.01 --volume-type=lots` all resolve to the identical stored order of `volume: 1000, volumeLots: 0.01`. Read the instrument's own limits first with `symbol --symbol=<name>`, which returns `lotSize`, `minVolume`, `maxVolume`, `volumeStep`, `digits`, and `pipSize`.
-
-**Stop loss and take profit are three-state on modify.** A value replaces, `0` removes, and omitting the flag preserves the current value. Supply prices as absolute values. A price on the wrong side of the reference is rejected before submission with a two-line `Warning:` then `Error:` message at exit 1, leaving server state untouched.
-
-Use the exact flag names `--order=<id>`, `--position=<id>`, and `--alert=<id>`. Response keys differ per command: `order place-limit` returns `orderId` with `status: "placed"` (pending placements share this shape; expect `positionId` with `status: "opened"` from a market order that fills immediately), `alert create` returns `id` with `status: "created"`, and `alert delete` returns `alertId` with `status: "deleted"`. Read the key that the command you called returns.
-
-After every mutation, re-read the affected entity with `orders`, `positions`, or `orders-history` and confirm the applied state before reporting success.
+Read the exit code directly, then the message. Exit 0 alone never proves that the command you meant ran. `references/errors-and-exit-codes.md` lists the codes, the message shapes and the recovery for each.
 
 ## Session preflight
 
-Before the first authenticated call, run the four-step preflight in `references/setup.md`: executable reachability, presence-and-length-only checks of `CTID` and `PWD-FILE`, password-file sanity, and a single go/no-go probe with `accounts -e`. The three outcomes are exit 0 with a JSON account array (ready), exit 81 (credentials rejected), and exit 1 with a missing-parameter message (a fast, clear failure, never a hang). That reference also carries the exact wording to give a user whose configuration needs fixing.
+Before the first authenticated call in a session, and whenever an authenticated call fails in a way that looks related to credentials rather than to usage, run the four-step preflight in `references/setup.md`: the executable answers, `CTID` and `PWD-FILE` are present (length only), the password file has a first line, and one `accounts` call answers. Its outcomes are exit 0 with the account list, whose entries carry `"Live":` (ready); exit 81 with `Invalid ctid or password` (credentials rejected); and exit 1 with a message that names the missing option or file. That reference also carries the wording for a user whose setup needs fixing.
 
 ## Reference files
 
-- `references/setup.md` - the preflight sequence and the user-facing setup instructions for each failure mode.
-- `references/routing-and-output.md` - the full routing matrix, payload anatomy, and parsing recipes.
-- `references/commands.md` - per-verb flags and payload shapes for the read-only surface.
-- `references/trading-write.md` - the guarded mutation sequence, volume and protection semantics, and response shapes.
-- `references/algo-lifecycle.md` - create, build, metadata, backtest, and run for cBots and indicators.
-- `references/errors-and-exit-codes.md` - the failure table, message shapes, and recovery actions.
+| Task | File |
+| --- | --- |
+| Installing per OS and per route, credentials, the preflight, wording for a user whose setup needs fixing | `references/setup.md` |
+| Which route a call takes, output shapes, finding the result, piped sessions | `references/routing-and-output.md` |
+| Exit codes, message shapes and recovery, except `build`, `backtest` and `optimize` results | `references/errors-and-exit-codes.md` |
+| Every read command, its options and its result | `references/commands.md` |
+| Orders, positions and alerts that change state; checks before and after | `references/trading-write.md` |
+| `create`, `build`, `metadata`, `backtest`, `optimize`, `run`, `cbots`, `stop`, and judging build, backtest and optimization results | `references/algo-lifecycle.md` |
+| Finding the result in a captured standard output | `scripts/extract_result.py` |

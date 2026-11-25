@@ -16,12 +16,21 @@ body:
         - CODE_OF_CONDUCT.md
         - CHANGELOG.md
         - COPYRIGHT.md
+        - skills/ctrader-cli/SKILL.md
+        - skills/ctrader-cli/references/algo-lifecycle.md
+        - skills/ctrader-cli/references/commands.md
+        - skills/ctrader-cli/references/errors-and-exit-codes.md
+        - skills/ctrader-cli/references/routing-and-output.md
+        - skills/ctrader-cli/references/setup.md
+        - skills/ctrader-cli/references/trading-write.md
+        - skills/ctrader-cli/scripts/extract_result.py
         - skills/ctrader-mcp-servers/SKILL.md
-        - skills/ctrader-mcp-servers/references/local-http-server.md
-        - skills/ctrader-mcp-servers/references/remote-http-server.md
-        - skills/ctrader-mcp-servers/references/trader-workflows.md
-        - skills/ctrader-mcp-servers/references/known-quirks.md
-        - skills/ctrader-mcp-servers/references/self-healing-playbook.md
+        - skills/ctrader-mcp-servers/references/local-data.md
+        - skills/ctrader-mcp-servers/references/local-trading.md
+        - skills/ctrader-mcp-servers/references/remote-data.md
+        - skills/ctrader-mcp-servers/references/remote-trading.md
+        - skills/ctrader-mcp-servers/references/local-app.md
+        - skills/ctrader-mcp-servers/references/trading-math.md
         - skills/ctrader-mcp-servers/scripts/conversion_rate.py
         - skills/ctrader-mcp-servers/scripts/pip_math.py
         - skills/ctrader-mcp-servers/scripts/position_sizing.py
@@ -43,7 +52,6 @@ body:
         - Outdated
         - Broken link
         - Typo
-        - Quirk Verify-fixed signal (server-side fix observed)
     validations:
       required: true
 

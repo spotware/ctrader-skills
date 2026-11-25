@@ -1,107 +1,78 @@
-# Trading write reference
-
-This reference covers every state-changing verb: `order place-market`, `order place-limit`, `order place-stop`, `order place-stop-limit`, `order modify`, `order cancel`, `position close`, `position close-partial`, `position modify`, `alert create`, and `alert delete`.
-The confirmation mechanism, the volume semantics, and the three-state protection rule apply across this whole set, and each works differently from what habit built on the read-only verbs would predict.
+# Orders, positions and alerts that change state
 
 ## The authorization gate
 
-On every command in the mutating set, `-q` is not a routine menu-skip convenience the way it is for a read. It **is** the confirmation. Passing it answers the confirmation prompt automatically and the mutation executes immediately, with no further chance to abort.
+These order, position and alert commands change the account: `order place-market`, `order place-limit`, `order place-stop`, `order place-stop-limit`, `order modify`, `order cancel`, `position close`, `position close-partial`, `position modify`, `alert create` and `alert delete`. Run one only when both of the following hold:
 
-Because `-q` is also the flag you reach for reflexively on shell-routed reads to keep stdout minimal, the single most important discipline in this reference is: never let it travel from a read command to a write command out of habit. Add `-q` to a mutating command only when both of the following are true:
+- The user has authorized this exact action. Authorization to trade in general does not count, and neither does authorization given earlier for a different order, position or symbol.
+- The target account reads `"Live": false` in batch `accounts`, read just before the command and not taken from an earlier read. State-changing commands go only to such an account, never to a live one.
 
-- The user has explicitly authorized this specific action. Not authorization to trade in general, and not authorization given earlier in the conversation for a different order or a different symbol; the specific action you are about to submit.
-- You have confirmed the target account is a demo account by reading the account's own record from `accounts` and checking that it reports `"Live": false`. Do this check freshly before the mutation, not from memory of an earlier read in the same session.
+`--yes` and `-y` skip confirmations; `-q` (`--quick`, `--quit`) exits after the first command; `--all` targets every applicable entity of `stop`, `order cancel`, `position close`, `alert delete`. With `-q` a command that asks for confirmation can run without asking, and can then print the line `Confirmed automatically in quick mode (-q).`; the read-back after the command shows whether it ran. On a launch line never add a trailing `yes`: builds read it differently, and it can end the command with exit 1 or confirm it.
 
-Never run a mutating command to discover how it behaves. If you need to understand a flag's shape or a response's fields, read `--commands`, this reference, or a neighboring read-only command instead of a live trial mutation.
+Never run a state-changing command to discover how it behaves. To learn an option's form or a result's fields, read `--commands`, `--help`, this file or a read command instead of a trial change on the account.
 
-## The confirmation mechanism
+## Before and after every state-changing command
 
-Only `-q` reliably confirms a mutating command at a direct, flag-style launch invocation (the shape you use: explicit flags, `--account=`, stdin redirected from `/dev/null`). The other forms that the CLI's own refusal message names do not work the way that message implies, in this invocation shape:
+Before:
 
-- `--yes` and `-y` both produce the identical refusal text, followed by `Cancelled.`, at exit 1, exactly as if no confirmation flag had been passed at all — the same refusal on `order place-limit`, `order modify`, and `order cancel` alike. The refusal reads:
+1. Run `ctrader-cli --help` before the first state-changing command of the session, and `ctrader-cli --commands` with it: `--help` prints the named options of your build and `--commands` its command words. Build the command line from those command words and named options, spelled exactly as printed; on an order, position or alert command give every argument as its named option, while `run` takes the `.algo` path, and a `.cbotset` file when one is used, as its first arguments; never build the line from memory or from another command.
+2. Check each option on the line against the options `--help` printed: name, hyphens, letter case. Correct or remove any option that listing does not hold before the command runs. For `run`, a `--<PropertyName>=` override is checked against the `PropertyName` values `metadata` reports instead (case kept).
+3. Put `--account=<account>` on the line, with the number whose `accounts` entry you have just read as `"Live": false`. Read it with batch `accounts` (without `-q`): `accounts -q` carries no `Live` key.
+4. Read the instrument with `symbol --symbol=<name>` and the state you are about to change with `orders`, `positions` or `alerts`, each with `-q` like every read on the shell route. Before a placement that is the list the new order, position or alert will join, so that the read-back shows what the command added. Write down the values you expect afterwards: side, volume, prices, stop loss, take profit, alert level and message.
+5. On the state-changing command, add `-q`, `--quick`, `--quit`, `--yes`, `-y`, `all` or `--all` only after the user has authorized this exact action. Any of them can let the command run. Never add a trailing `yes` on a launch line: builds read it differently. Before each state-changing command, tell the user what it does: for a placement the symbol, side, volume, prices and levels; for a modify, what it sets and what it keeps; for a cancel or a close, which order or position it is: an order by symbol, side and price, a position by symbol, side and entry price; for a delete, which alert. Do it also when the user's message already authorized the exact action and nothing is asked again. For an order with a stop loss or a take profit, say there that a level which does not apply is set to the authorized value at once (step 8).
 
-```text
-Refused: confirmation required. Append `yes` as a trailing positional inside the shell, or pass --yes/-q at launch time.
-Cancelled.
-```
+After:
 
-- A bare trailing `yes` positional, mixed into an otherwise flag-style command line, does not confirm and does not cleanly refuse either. It ends the process with an unhandled `ConsoleInvalidUsageException` stack trace on stderr (empty stdout, exit 1). The trailing-`yes`-positional convention belongs to typing at the interactive shell's own `>` prompt; it is not something you can append to a launch line built of `--flag=value` arguments.
-- The `all` keyword (for bulk operations such as `alert delete --alert=all` or a bare `all` positional) is shell-prompt syntax in the same sense. At a direct launch invocation, `--alert=all` is rejected with `Error: Alert id must be a number, got 'all'.`, and a bare `all` positional is rejected with `Error: 'alert' is required. Provide it as a positional argument inside the shell, or pass --alert=<value> when launching the command.` Note that `--help` also documents a dedicated `--all` launch flag (`target every applicable entity`, covering `stop`, `order cancel`, `position close`, and `alert delete`); prefer explicit-ID deletion or cancellation until you have verified `--all` yourself.
+6. Find the output line that names the account the command used (`Using account: #<account> ...` or `Using your only account: #<account> ...`) and check that it is the number you passed. The line can be missing, as on a command that ends in invalid usage; read back all the same.
+7. Read the entity back on the same account, with the read of step 4, and compare every value you set with what you wrote down. A value that reads back empty, at its default, or different means an option did not apply.
+8. When a stop loss or take profit the user authorized did not apply, set exactly that level at once with the matching modify command and tell the user, with the read-back before and after. Any other value that differs from what you wrote down, such as the volume, the price, the side or an alert level, waits for the user: report it and change nothing. Do not repeat the original command: it would open a second order or position. The modify call follows the same steps; the section on protection levels says what `0` or an omitted level does on modify.
 
-So: `-q` at launch is the confirmation form that applies to the invocations you compose. Of the other forms, only the bare trailing `yes` positional ends the process with the usage-trace exception; `--yes` and `-y` fail gracefully with the refusal text plus `Cancelled.`, and the `all` spellings (`--alert=all` and a bare `all` positional) fail gracefully with a one-line `Error:`. The trailing `yes` and bare `all` keywords are the interactive shell's own `>`-prompt syntax; `--yes`/`-y` are launch options per the CLI's own `--help` (`--yes, -y  skip confirmations`) that do not confirm in this invocation shape — never rely on them.
+Steps 1 and 2 prevent a dropped option; steps 6 and 7 detect one that slipped through, because under `-q` the command itself gives no sign.
 
-Expect the same `-q`-confirms / `--yes`-and-`-y`-refuse pattern on every verb in the mutating set: `--commands` shows each one exposing the identical confirmation convention, listing trailing-`yes` positional forms alongside its argument shapes. Re-confirm on first use of a verb where precision matters.
+For a market order, step 7 checks that each level the user authorized is present and on the expected side, because the CLI sends market-order levels as distances in pips (see "Order types and their options").
 
-## The four-stage guarded sequence
+Never run a state-changing command without `--account`. If one ran without it, read the account line (step 6), read back on that account, and tell the user which account the action reached.
 
-Drive every mutation through this four-stage sequence, in order, every time:
+## Spelling options
 
-1. **Pre-flight read.** Before submitting anything, read the instrument's own tradeable limits with `symbol --symbol=<name>` (returns `lotSize`, `minVolume`, `maxVolume`, `volumeStep`, `digits`, `pipSize`, current `bid`/`ask`), and read the current state of the entity you are about to mutate (`orders`, `positions`, or `alerts`) so you know its prior values.
-2. **Act.** Submit the mutating command with `-q`, after the authorization gate above has been satisfied.
-3. **Read back.** Immediately re-read the affected entity with `orders`, `positions`, `orders-history`, or `alerts` as appropriate.
-4. **Verify.** Compare the read-back against what you expected the mutation to have produced (the new price, the new stop, the removed order, the deleted alert) before you report success to the user. A command's own confirmation JSON is not a substitute for this independent read-back.
+With `-q`, commands that use a trading account (`price`, `alerts`, `positions`, `order` and the other trading and data commands) skip an option they do not recognize, without a message, and run with the options they recognize. A misspelled optional option is left out: an order placed with `--stoploss=` instead of `--sl=` opens without a stop loss, and `--volume-typ=lots` leaves the volume in units. A misspelled required option still stops the command with a message naming it, such as `Error: 'order' is required. ...` for `--order-id=`. On the batch route an unknown option stops the call with exit 1 and an `Error:` line that names it, such as `Error: Parameter <name> is not allowed` or `Error: Unknown command line parameters found: <name>`; match the `Error:` prefix and the name, not the whole line.
 
-## Volume is expressed in units by default
+The options that name the target are `--order=<order-id>` for `order modify` and `order cancel`, `--position=<position-id>` for `position close`, `position close-partial` and `position modify`, and `--alert=<alert-id>` for `alert delete`.
 
-`--volume` is interpreted in units unless you say otherwise. On EURUSD (`lotSize=100000`, `minVolume=1000`, `volumeStep=1000`), these three invocations of `order place-limit` resolve to the identical stored order:
+## Order types and their options
 
-- `--volume=1000` with no `--volume-type` flag at all
-- `--volume=1000 --volume-type=units`
-- `--volume=0.01 --volume-type=lots`
+`order place-market` takes `--symbol`, `--side=buy|sell` and `--volume`. `order place-limit` adds `--price=<limit price>`; `order place-stop` adds `--stop-price=<stop price>`; `order place-stop-limit` adds `--stop-price` and `--limit-range=<pips>`, the slippage in pips allowed once the stop triggers (`0` fills at market on the trigger). `--sl` and `--tp` are optional on every type. `--limit-range` is a distance in pips; every other price option is a price. In the `orders` read-back, a stop or stop-limit order can show the stop price as `targetPrice` and the range as `slippagePips`, with `limitPrice` the price the range allows; compare by the field names your result carries.
 
-Each reads back as `volume: 1000, volumeLots: 0.01`. The confirmation text printed at submission time for the untyped case reads `BUY 1000 units (= 0.01 lots)`, spelling out the resolution in the same call.
+`order modify` moves the entry of a pending order with `--price=<price>`: the limit price of a limit order, the stop price of a stop or stop-limit order. Read the order back to see that the entry moved.
 
-Always read the instrument's limits first with `symbol --symbol=<name>` before choosing a volume, since `minVolume`, `maxVolume`, and `volumeStep` are per-instrument and a value outside them is what you are validating against, not a fixed constant.
-
-## Stop loss and take profit: the three-state rule
-
-`order modify` treats `--sl` and `--tp` as three-state flags; expect the same from `position modify` and confirm on first use:
-
-- Passing a value replaces the field with that value.
-- Passing `0` removes the field (read back as `null`).
-- Omitting the flag entirely preserves whatever value is already set; it does not clear it.
-
-Modifying with `--sl=0` prints confirmation text `SL=remove` and reads back as `stopLoss: null`, while a `takeProfit` omitted from the same call comes back unchanged. A call with `--sl=1.0250` (a plain value) replaces the field. Supply prices as absolute values, not as pip offsets.
-
-## Wrong-side rejection
-
-A stop loss or take profit on the wrong side of the reference price is rejected client-side, before the request ever reaches the server, so no state changes. The exact shape, for a buy limit order at 1.0378 modified with `--sl=1.0500`:
+A full line takes this form, with every value read and authorized first:
 
 ```text
-Warning: SL=1.0500 is on the profit side of reference price 1.0378 for buy (server may reject).
-Error: SL/TP is on the wrong side of the reference price. The server would silently drop the protection. Modification rejected.
+order place-limit --symbol=<name> --side=buy --volume=<units> --price=<limit price> --sl=<price> --tp=<price> --account=<account> -e -q
 ```
 
-Exit code 1, two lines of plain text: a `Warning:` line naming the specific side violation, then an `Error:` line stating the rejection. The order's protection is left exactly as it was; treat this rejection as a safe no-op, and still confirm with a read-back rather than an assumption.
+For `order place-market`, `--sl` and `--tp` are prices as on every other type, and the CLI turns them into distances in pips when it submits the order. The command can print a `Warning:` line about this conversion before the order summary; the order is still placed, so read it back.
 
-## Flag names that matter
+## Volume
 
-Use the exact flag names below. An unrecognized near-miss is treated as if the value were never supplied, so the result is a missing-value message naming the option the command still needs rather than a message about the name you typed:
+`--volume` is interpreted in units unless you say otherwise: `--volume-type=lots` reads it in lots, and `--volume-type=units` or no `--volume-type` at all reads it in units. Before choosing a volume, read `lotSize`, `minVolume`, `maxVolume` and `volumeStep` with `symbol --symbol=<name>`. They are per-symbol values that the connected server returns, not fixed constants, and they are what you check a volume against.
 
-- `--order=<id>` identifies the target for `order modify` and `order cancel`. `--order-id=<id>` is not recognized: it produces `Error: 'order' is required. Provide it as a positional argument inside the shell, or pass --order=<value> when launching the command.`, which reads like a missing value rather than a wrong flag name.
-- `--position=<id>` identifies the target for `position close`, `position close-partial`, and `position modify`, following the same naming convention as `--order`.
-- `--alert=<id>` identifies the target for `alert delete`.
-- `--symbol=<name>` must be passed as an explicit named flag everywhere a symbol is required, including `order place-*` and `alert create`. A bare positional symbol is not consumed at a direct launch invocation; it reroutes into the interactive shell instead.
+In `position close-partial --position=<position-id> --volume=<value>`, `<value>` is in units unless `--volume-type=lots` is added. The summary line can state the amount in units and in lots: check it. Closing the whole remainder this way can still answer `partially_closed`, so read `positions` to see what is left.
 
-## Response keys per command
+## Protection levels
 
-Each mutating command returns its own identifier key and its own `status` string; read the key that matches the command you actually called rather than assuming a single conceptual identifier name across the set:
+On `order modify` and `position modify`, an option you leave out keeps its current value. On `order modify`, `--sl=0` can remove the stop loss; the summary line then shows `SL=remove`. Read the order back to confirm both.
 
-| Command | Identifier key | `status` value |
-| --- | --- | --- |
-| `order place-limit` | `orderId` | `"placed"` |
-| `order modify` | `orderId` | `"modified"` |
-| `alert create` | `id` | `"created"` |
-| `alert delete` | `alertId` | `"deleted"` |
+`order modify` can refuse a stop loss on the wrong side of the order's price: it prints a `Warning:` line and `Error: SL/TP is on the wrong side of the reference price. ...`, exits 1, and the order keeps its levels. Read the order back either way, and tell the user which level was refused.
 
-The `id` versus `alertId` naming difference between the two alert commands is the CLI's convention to read from, not an inconsistency to work around. For the placement verbs beyond the table, expect `{"orderId": <int>, "status": "placed"}` when the submission rests as a pending order and `{"positionId": <int>, "status": "opened"}` when it fills into a position immediately — the normal outcome for `place-market` — and read whichever of the two keys is present rather than assuming `orderId`. For `order cancel`, `position close`, `position close-partial`, and `position modify`, expect `orderId` (cancel) or `positionId` (the position commands, with `close-partial` also carrying `volume` and `volumeLots` for the partial amount); confirm the exact key on first use before relying on it in a script.
+## What the commands return
 
-## Alerts: create and delete
+A state-changing command can print a line restating the command and a summary line, and, when it ran, a JSON object with the id of the entity and a `status` word, such as `{"orderId": <order-id>, "status": "placed"}`, `{"id": <alert-id>, "status": "created"}` or `{"positionId": <position-id>, "status": "opened"}`. Take the id from that object, and confirm the change by reading the entity back, not with the `status` word.
 
-`alert create` requires the flag form at launch: `--symbol=`, `--price=`, and `--condition=` (accepted values `above` and `below`); bare positionals are not consumed at a direct launch invocation. The confirmation text echoes the alert in plain language, for example `Create alert: EURUSD below 0.5.`, before the JSON payload.
+The `status` words and keys above are examples, not a list to match. The empty reads are `{"alerts": []}`, `{"orders": []}` and `{"positions": []}`.
 
-A populated `alerts` read returns an object keyed `alerts`, each entry carrying `id`, `symbolName`, `price`, `condition` (the human-facing string, `above`/`below`), `conditionType` (the internal enum name, `GreaterOrEqual`/`LessOrEqual`), `quoteType`, and `message` (an empty string when none was supplied at creation). An account with no alerts returns `{"alerts": []}`.
+## Alerts
 
-`alert delete` takes `--alert=<id>` and returns the `alertId`/`"deleted"` pair described above. Delete by explicit numeric ID; `--alert=all` and a bare `all` positional are both rejected at launch (see the confirmation section above); `--help` documents a separate `--all` launch flag for bulk deletion — verify it before relying on it.
+`alert create` takes `--symbol`, `--price`, `--condition=above|below` and an optional `--message=<text>` that labels the alert. An alert compares the symbol's Bid price with its level.
 
-Follow the four-stage sequence for alerts exactly as for orders: read `alerts` before creating (to know the starting state), create with `-q` after authorization, read `alerts` back to confirm the new entry's fields match what you intended, and after a delete, read `alerts` again to confirm the entry is gone rather than trusting the delete command's own JSON alone.
+`alert delete` takes `--alert=<alert-id>` for one alert; `--all` targets every alert, an action the user authorizes as such. Follow the steps above for alerts exactly as for orders: read `alerts` before the change, and read it again afterwards to confirm that the new entry carries the level, condition and message you intended, or that a deleted entry is gone.

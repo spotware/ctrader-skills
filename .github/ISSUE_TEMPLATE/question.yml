@@ -7,9 +7,9 @@ body:
       value: |
         Before asking, you may find your answer in the existing documentation:
 
-        - [README](https://github.com/spotware/ctrader-skills#readme) -- Overview and installation
-        - [CONTRIBUTING](https://github.com/spotware/ctrader-skills/blob/main/CONTRIBUTING.md) -- Skill authoring guide
-        - [cTrader Help Centre](https://help.ctrader.com/) -- cTrader platform reference
+        - [README](https://github.com/spotware/ctrader-skills#readme): overview and installation
+        - [CONTRIBUTING](https://github.com/spotware/ctrader-skills/blob/main/CONTRIBUTING.md): releases and how to propose a change
+        - [cTrader Help Centre](https://help.ctrader.com/): cTrader platform reference
 
         Questions about the **cTrader platform itself** (charts, accounts, broker behavior) should go to the [cTrader Help Centre](https://help.ctrader.com/), not this issue tracker.
 
@@ -29,10 +29,11 @@ body:
       options:
         - Installation / Setup
         - Skill usage with a specific AI agent
-        - cTrader MCP server semantics
-        - Quirks ledger
-        - Self-healing playbook
-        - Scripts (pip math, position sizing, conversion rate, tiered margin, units encoding)
+        - cTrader CLI usage
+        - Remote MCP server (data and trading)
+        - Local MCP server (data, trading and the app)
+        - Trading math (pips, sizing, margin, conversion)
+        - Scripts (pip math, position sizing, conversion rate, tiered margin, units encoding, CLI result extraction)
         - Contributing / adding a new skill
         - Other
     validations:

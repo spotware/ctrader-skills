@@ -32,7 +32,6 @@ body:
         - Scripts (scripts/*.py)
         - Plugin metadata (.claude-plugin/*.json)
         - New skill request
-        - CI / CD
         - Documentation
         - Installation (install.sh / npx skills)
         - Other
@@ -57,7 +56,7 @@ body:
       label: Contribution
       description: Would you be willing to help with this feature?
       options:
-        - label: I would be willing to submit a PR
+        - label: I would be willing to draft the change
         - label: I can help test this feature
 
   - type: textarea

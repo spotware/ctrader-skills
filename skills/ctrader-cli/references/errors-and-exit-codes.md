@@ -1,105 +1,89 @@
-# Errors and Exit Codes
+# Errors and exit codes
 
-This is the failure reference for the cTrader CLI: the exit-code table, the distinct message shapes and the stream each arrives on, and the recovery action for each class. Treat the table as a branch key and the message text as the signal you actually act on -- the two are complementary, not interchangeable.
+Read the exit code directly, then the message. The code tells you which branch to take, and the message tells you what to correct. Exit 0 alone never proves that the command you meant ran.
 
-## Exit-code table
+## Exit codes
 
-| Code | Meaning | Recovery action |
-| ------ | --------- | ------------------ |
-| 0 | Success | Proceed; a success payload never contains the substring `Error:` |
-| 1 | Invalid usage, unrecognized flag, missing required parameter, file not found, an interactive-path validation error, or a pre-routing parse error | Read the printed usage block or the specific validation message and correct the argument; do not retry unchanged |
-| 81 | Invalid cTrader ID or password, exact message `Invalid ctid or password` | Re-check the `CTID` value and the `PWD-FILE` path and content; do not retry with the same credentials |
-| 82 | Account cannot be found, exact message `Account cannot be found. Use accounts command to list all trading accounts linked to cTrader ID` | Call `accounts` to enumerate the cTrader ID's linked account numbers, then retry with a valid one |
-| 124 | The external `timeout` ended the process | Check for a completion signal that already arrived (see the `backtest` section below) before treating this as a failure; on `build`, which exits on its own once the compile finishes, a 124 means the timeout expired before completion — raise the timeout and retry |
+| Code | Meaning | Recovery |
+| --- | --- | --- |
+| 0 | Success | Proceed, after you have found the result in the output |
+| 1 | Invalid usage, an unknown option outside quick mode, a missing required parameter, a file or project path that does not exist, a validation error, or a parse error before any route is chosen | Read the message, such as an `Error:` line or a usage block, correct the argument it names, and do not retry unchanged |
+| 81 | `Invalid ctid or password` | Check the cTrader ID and the password file; do not retry with the same credentials |
+| 82 | `Account cannot be found. Use accounts command to list all trading accounts linked to cTrader ID` | Read `accounts` and retry with the `Number` and `Broker` it reports |
+| 124 | The external `timeout` ended the process | Raise the timeout, or check whether the work finished before the process was ended |
 
-Do not expect a distinct nonzero code for an unknown symbol, an unknown period, or an empty data window. `candles` reaches its validation through the interactive pipeline, where invalid symbol and invalid period land on exit 1 with a specific message (see the worked examples below), while an out-of-range date window returns exit 0 with an empty `bars: []` array rather than a distinct "no data" code. For any nonzero exit code not listed in the table, branch on the message text using the message shapes below, not on the number; the CLI's `--help` and `--commands` output documents no exit codes.
+Exit 82 has two causes: the account number is not linked to the cTrader ID, or `--broker` names a broker the account does not belong to. `--broker=<name>` selects the broker when the same account number exists at more than one broker. `accounts --broker=<name>` with a name that matches no account returns an empty result with exit 0.
 
-## The stream-echo rule
+With `-q`, a command that uses a trading account skips an option it does not recognize, without a message, so exit 0 does not show a misspelled option; a misspelled required option still stops the command with a message naming it, such as `Error: 'order' is required. ...`. On the batch route an unknown option stops the call with exit 1 and an `Error:` line that names it, such as `Error: Parameter <name> is not allowed` or `Error: Unknown command line parameters found: <name>`; match the `Error:` prefix and the name, not the whole line.
 
-Whether stderr carries a one-line echo of the reconstructed command line is a function of which pipeline the call reached, not of success or failure:
+An unknown symbol, an unknown period or an empty data window has no exit code of its own. `candles` with an unknown symbol or period ends with exit 1 and a message, and a date window with no bars returns exit 0 with an empty `bars` array. The CLI's `--help` and `--commands` output documents no exit codes. Other nonzero codes exist; for a code this table does not list, act on the message text, not the number.
 
-- A call that reaches the batch pipeline (`accounts`, `symbols`, `periods`, and the other batch verbs) always prints that echo to stderr, on exit 0 as well as on exit 1, 81, or 82 -- for example `ctrader-cli.exe accounts -e` produces a 29-byte stderr echo on a successful run, and the same shape of echo appears on an unknown-account exit 82.
-- A call that lands in the interactive pipeline never prints that echo, regardless of its own exit code. Both a successful `candles` call and a `candles` call that fails validation leave stderr empty.
-- A pre-routing parse failure -- the parser rejects the arguments before a pipeline is even chosen -- also leaves stderr empty. An empty `--pwd-file=` value, for instance, produces the stdout message `Unable to determine destination for argument value: --pwd-file=` at exit 1 with zero stderr bytes.
+## Which stream carries what
 
-Use stderr's content, not its mere presence, as the cheap diagnostic for which pipeline you reached: a stderr line that reproduces the invocation's argv means the call reached the batch pipeline (`--version` also echoes its argv this way, though it short-circuits before any pipeline routing); empty stderr means either a pre-routing parse failure or a landing in the interactive pipeline, and the stdout content (an `Error:` line versus the interactive banner and menu) tells you which; any other non-empty stderr content comes from a non-batch path — a quick-mode credential error such as `Missing --ctid in non-interactive mode.`, or the unhandled exception trace of the message shapes below.
+Standard error never carries a result. It can carry, among other text, the line that repeats the command, a `Missing ... in non-interactive mode.` message, an exception trace and an `Invalid account number: ...` message; treat it as diagnostic text, never as a pass or fail signal.
 
-## Five message shapes
+Standard output carries every result and every `Error:` line. An exception trace can stand there too, alone or beside its copy on standard error. The banner `cTrader CLI` stands on standard output.
 
-Five distinct message shapes cover the failure surface. Distinguish them by which stream carries the text and whether the command-line echo is present, not by exit code alone.
+Batch output can also carry log lines before and after the result or the message, where a log line starts with a timestamp followed by `|`. A message such as `Error: ...`, `Invalid ctid or password` or `Account cannot be found. ...` can stand anywhere: search for a line that starts with that text; the same text can also appear inside a log line.
 
-**Batch-pipeline `Error:` with stderr echo.** The call reached the batch pipeline, and validation failed there. Stdout carries a message beginning `Error:`, often followed by a full usage block; stderr carries the one-line command echo.
+A build can print a line that repeats the command: on standard error, as the first line of standard output, or not at all, depending on the build and the command. It is never the result and never a sign of failure.
+
+## Message shapes
+
+The common shapes are:
+
+**An `Error:` line on the batch route.** Validation failed on the batch route. Standard output carries a line that starts with `Error:`, often followed by a usage block:
 
 ```text
-$ ctrader-cli.exe accounts --this-flag-does-not-exist=1 -e </dev/null
-stdout: Error: Parameter this-flag-does-not-exist is not allowed
+$ ctrader-cli symbols --account=<account> --no-such-flag=1 -e </dev/null
+stdout: Error: Parameter no-such-flag is not allowed
         [usage block follows]
-stderr: ctrader-cli.exe accounts --this-flag-does-not-exist=1 -e
 exit:   1
 ```
 
-The same shape carries the auth and account-lookup failures: `Invalid ctid or password` at exit 81, and `Account cannot be found. Use accounts command to list all trading accounts linked to cTrader ID` at exit 82, both on stdout with the matching stderr echo.
+The sign-in and account failures take the same place: `Invalid ctid or password` with exit 81, and `Account cannot be found. Use accounts command to list all trading accounts linked to cTrader ID` with exit 82, both on standard output.
 
-**Interactive-pipeline `Error:` without stderr echo.** The call reached the interactive pipeline, and validation failed inside it. Stdout carries an `Error:` message (sometimes after a banner and header line); stderr is empty.
+**An `Error:` line on the shell route.** Validation failed inside the command shell. Standard output carries an `Error:` line, sometimes after the banner and the header. An unknown symbol ends with exit 1 and an `Error: Symbol not ...` line that names it; the wording differs between commands and between builds, so match the `Error:` prefix and the symbol name, not the whole line:
 
 ```text
-$ ctrader-cli.exe candles --account=5816091 --symbol=NOTAREALSYMBOL --period=D1 --count=10 -q -e </dev/null
-stdout: [interactive banner]
+$ ctrader-cli candles --account=<account> --symbol=NOTAREALSYMBOL --period=D1 --count=10 -q -e </dev/null
+stdout: [banner and header]
         Error: Symbol not available: NOTAREALSYMBOL
-stderr: (empty)
 exit:   1
 ```
 
-An invalid timeframe on the same command produces the analogous shape: stdout `Error: Invalid timeframe: 'zz9'.`, empty stderr, exit 1.
+Another build or command can print `Error: Symbol not found: NOTAREALSYMBOL` for the same call.
 
-**Pre-routing parser message without echo.** The argument parser rejects the invocation before any pipeline is chosen. Stdout carries a message that does not begin with `Error:`; stderr is empty.
+An invalid timeframe on the same command gives the same shape, `Error: Invalid timeframe: 'zz9'.`, and so does a value that is no number for a numeric option: `Error: Option --count has invalid number: notanumber`. Read the named option out of the message and correct the call.
+
+**A message from the argument parser.** The parser rejects the call before any route is chosen. The message does not start with `Error:`:
 
 ```text
-$ ctrader-cli.exe accounts --ctid="<id>" --pwd-file="" </dev/null
-stdout: Unable to determine destination for argument value: --pwd-file=
-stderr: (empty)
+$ ctrader-cli accounts --ctid="<ctid>" --pwd-file="" </dev/null
+output: Unable to determine destination for argument value: --pwd-file=
 exit:   1
 ```
 
-The same shape appears when a positional argument itself cannot be resolved -- for example a nonexistent path passed to `metadata` produces `Unable to determine destination for argument value: <path>` on stdout with empty stderr, at exit 1, whether or not `-e` is present. Because this shape carries no `Error:` prefix, detect it by checking whether stdout is non-JSON and lacks that prefix, rather than by string-matching `Error:`.
+A positional argument that cannot be resolved gives the same shape, for example a `.algo` path that does not exist passed to `metadata` or `backtest`: `Unable to determine destination for argument value: <path>`, exit 1. This shape carries no `Error:` prefix, so search for the `Unable to determine destination` text instead.
 
-**Unhandled exception trace without echo.** An argument combination the parser cannot resolve at all -- most notably mixing a bare trailing positional (`yes`) with `--flag=value` syntax on a direct launch line -- ends the process with an unhandled exception trace instead of a clean message. Stdout is typically empty; the trace, naming `ConsoleInvalidUsageException` and the parser's own call path, arrives on stderr; exit is 1.
+**An exception trace.** A batch call can also end with an exception trace, with exit 1 and no `Error:` line; depending on the build the trace stands on standard error, on standard output or on both. A non-numeric `--account` does this on batch `symbols`; the trace names `System.FormatException`. Pass the numeric `Number` that `accounts` reports.
 
-```text
-$ ctrader-cli.exe order cancel --order=312753167 yes --account=5816091 -e </dev/null
-stdout: (empty)
-stderr: Interactive shell crashed: ConsoleInvalidUsageException ...
-        [stack trace through the CLI's own parser classes]
-exit:   1
-```
+**A non-numeric account on the shell route.** With `-q`, a non-numeric `--account` ends the command after the sign-in lines with exit 1 and `Invalid account number: '<value>'. Expected a numeric login id.` on standard error. Pass the numeric `Number` that `accounts` reports.
 
-Pass confirmation with `-q` at launch instead of a trailing `yes` token to stay inside the first or second message shape rather than this one.
-
-**Shell-routed credential failure with banner-only stdout.** An invocation that routes into the shell pipeline without credentials — a dual-mode verb called with `-q` but without `-e` or explicit `--ctid`/`--pwd-file`, or a subcommand `--help` on a shell-routed verb — fails before any command validation. Stdout carries only the `cTrader CLI` banner line; stderr carries the plain-English message `Missing --ctid in non-interactive mode.` with no command echo, no `Error:` prefix, and no stack trace; exit is 1 (`periods -q`, `symbols -q`, `metadata <path> -q`, and `deals --help` all fail this way). Recover by supplying credentials (`-e` with `CTID`/`PWD-FILE` set, or explicit `--ctid`/`--pwd-file`), by dropping `-q` for a verb whose batch form needs no credentials (`periods`), or by using the top-level `ctrader-cli.exe --help`, the only help form that works without credentials.
-
-A non-numeric value supplied for a numeric flag stays inside the interactive-pipeline `Error:` shape rather than this exception-trace shape: `candles --account=<n> --symbol=EURUSD --period=D1 --count=notanumber -q -e` returns the message `Error: Option --count has invalid number: notanumber` on stdout, with stderr empty and exit 1. Validate numeric flag values before invoking, and read the named flag out of the message text to correct the call.
-
-## Build: exit code is not the completion signal
-
-`build` returns exit 0 for both a successful compile and a failed one. The process exit code carries no pass/fail information for this verb at all. The JSON body's `success` boolean is the only authoritative signal, with diagnostics in `errors: [{file, line, column, code, text}]` using Roslyn-style codes such as `CS1002` and `CS0103` when `success` is `false`. Read `success` from the JSON body on every `build` call regardless of exit code.
-
-## Backtest: exit code is not the completion signal
-
-`backtest` continues running after it has already printed its own completion output. A run prints a full progress log followed by a compact JSON summary on stdout -- keys such as `Equity`, `NetProfit`, `WinningTrades`, `LosingTrades`, `TotalTrades` -- within seconds of real work, and then keeps the process alive until the external `timeout` ends it at exit 124. When `--report-json` is supplied, that file is written correctly and completely even though the process itself has not yet been terminated. Treat the appearance of the final compact JSON summary on stdout, or the appearance of the `--report-json` file, as the completion signal for `backtest`; a 124 exit alongside either artifact is a completed run, not a failure. Always wrap `backtest` in an external `timeout` so the process is reliably ended once that signal has arrived.
+**Missing credentials.** A call that needs credentials and has none ends with exit 1: standard output carries the `cTrader CLI` banner, and standard error carries `Missing --ctid in non-interactive mode.` or `Missing --password or --pwd-file in non-interactive mode.`, with no `Error:` prefix. Supply the credentials with `-e` and the `CTID` and `PWD-FILE` variables, or with `--ctid` and `--pwd-file`; for `periods`, whose batch form needs no credentials, drop the option that moved it to the shell route. The top-level `ctrader-cli --help` works without credentials.
 
 ## Wrapper shells and reported exit codes
 
-A wrapper shell sitting between you and the CLI process can report a different exit code than the CLI itself produced -- for example a PowerShell call-operator invocation can surface the underlying failure through its own error-wrapping rather than passing the CLI's numeric code through untouched. When the message text and the exit code you observe disagree, trust the message text: it is the primary detection signal, and the exit code is the branch key you use only after the message has told you which branch you are on.
+A wrapper shell between you and the CLI process can report a different exit code than the CLI produced: a PowerShell call-operator invocation, for example, can report the failure through its own error handling instead of passing the CLI's code through. When the message text and the exit code disagree, trust the message text, then branch on the code.
 
-## Recovery actions by class
+## Recovery by class
 
-- **Exit 0, `success: false` or empty result payload (`build`, `candles` no-data window):** read the JSON body's own status field or content; this is not a process failure.
-- **Exit 1, `Error:` on stdout, stderr echo present:** the batch pipeline rejected the arguments or a batch-routed lookup failed; correct the flag or value named in the message and retry.
-- **Exit 1, `Error:` on stdout, stderr empty:** the interactive pipeline rejected the arguments; the message names the specific symbol, timeframe, or value at fault.
-- **Exit 1, non-`Error:`-prefixed message, stderr empty:** a pre-routing parse failure; the message names the argument value the parser could not resolve.
-- **Exit 1, empty stdout, exception trace on stderr:** an unhandled parser exception, typically from mixing a trailing bare positional with flag-style arguments; relaunch using `-q` for confirmation instead.
-- **Exit 1, stdout `cTrader CLI` banner only, `Missing --ctid in non-interactive mode.` on stderr:** the call shell-routed without credentials; add `-e` or explicit credential flags, or drop `-q` where the batch form needs no credentials.
-- **Exit 81:** re-check `CTID` and `PWD-FILE` before retrying.
-- **Exit 82:** call `accounts` to get a valid account number before retrying.
-- **Exit 124 on `backtest`:** check for the completion artifact (the final compact JSON summary on stdout or the `--report-json` file) before treating this as a failure; `backtest` keeps the process alive after completing its work, so a 124 with the artifact present is a completed run.
-- **Exit 124 on `build`:** the timeout expired before the compile finished — `build` exits on its own (exit 0) once done, so no completion artifact will be present; raise the timeout and retry.
+- **Exit 0 with an empty result** (an empty `bars` array, `[]` from `accounts --broker=<name>`): the call worked and found nothing; it is no process failure.
+- **Exit 1 with an `Error:` line:** correct the option or value the line names and retry.
+- **Exit 1 with `Unable to determine destination for argument value: <value>`:** the parser could not place that value; correct it, or pass it as its named option.
+- **Exit 1 with an exception trace and no `Error:` line:** read the exception name; for `System.FormatException` on `--account`, pass the numeric `Number` that `accounts` reports.
+- **Exit 1 with `Invalid account number: ...` on standard error:** pass the numeric `Number` that `accounts` reports.
+- **Exit 1 with a `Missing ... in non-interactive mode.` line:** add the credentials, or drop the route option where the batch form needs none.
+- **Exit 81:** check `CTID` and the password file before any retry.
+- **Exit 82:** read `accounts`, then retry with the `Number` and `Broker` it reports.
+- **Exit 124:** the external `timeout` ended the process; raise the timeout or check whether the work finished first.

@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for reporting a bug! Please fill out the form below to help us investigate.
 
-        **Before submitting, please note:** A clear description and reproduction steps are the most helpful things you can provide. If you have done genuine investigation and have a non-obvious insight into the root cause, include it. But please do not speculate or include LLM-generated diagnoses -- an incorrect analysis is harder to work with than none at all.
+        **Before submitting, please note:** A clear description and reproduction steps are the most helpful things you can provide. If you have done genuine investigation and have a non-obvious insight into the root cause, include it. But please do not speculate or include LLM-generated diagnoses: an incorrect analysis is harder to work with than none at all.
 
   - type: checkboxes
     id: prerequisites
@@ -54,6 +54,7 @@ body:
       description: Which skill exhibits the bug?
       multiple: true
       options:
+        - ctrader-cli
         - ctrader-mcp-servers
         - Other / not sure
     validations:
