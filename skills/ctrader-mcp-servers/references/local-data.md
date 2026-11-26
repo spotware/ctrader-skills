@@ -49,7 +49,7 @@ Every tool the Local server serves, one line each. The last column names the sec
 | `place_stop_order` | Places a stop order | [local-trading.md](local-trading.md) |
 | `place_stop_limit_order` | Places a stop-limit order | [local-trading.md](local-trading.md) |
 | `amend_position` | Changes the stop loss or take profit of a position, as prices | [local-trading.md](local-trading.md) |
-| `amend_order` | Changes the entry, volume, expiration or protections of a pending order | [local-trading.md](local-trading.md) |
+| `amend_order` | Changes the entry, volume, expiration or protections of a limit or a stop order | [local-trading.md](local-trading.md) |
 | `close_position` | Closes a whole position | [local-trading.md](local-trading.md) |
 | `close_position_partial` | Closes part of a position | [local-trading.md](local-trading.md) |
 | `close_all_positions` | Closes every open position, optionally of one symbol | [local-trading.md](local-trading.md) |
@@ -79,7 +79,7 @@ Every tool the Local server serves, one line each. The last column names the sec
 | `clear_chart_objects` | Deletes every drawing on the active chart | [local-app.md](local-app.md) |
 | `save_chart_template` | Saves the settings of the active chart as a template | [local-app.md](local-app.md) |
 | `list_chart_templates` | Lists the chart templates | [local-app.md](local-app.md) |
-| `apply_chart_template` | Applies a template to the active chart | [local-app.md](local-app.md) |
+| `apply_chart_template` | Applies a template to the active chart, replacing its indicators | [local-app.md](local-app.md) |
 | `delete_chart_template` | Deletes a chart template | [local-app.md](local-app.md) |
 | `save_workspace` | Saves the layout as a named workspace | [local-app.md](local-app.md) |
 | `load_workspace` | Loads a saved workspace | [local-app.md](local-app.md) |
@@ -157,11 +157,11 @@ Send every time as ISO 8601 UTC with `Z`, converting a time the user gives in an
 
 ## Quotes
 
-`get_spot_prices` takes one `symbolName` and answers `symbolName`, `bid`, `ask`, `spread` in pips, `high`, `low` and `open`, with no timestamp. For a symbol without a live quote it answers a tool error, and `get_symbol_details` shows `bid` and `ask` as `null`. Then, with the user's agreement, open a chart of the symbol with `open_chart`, read the quote again, and close that chart afterwards; if there is still no quote, tell the user the price is not available.
+`get_spot_prices` takes one `symbolName` and answers `symbolName`, `bid`, `ask`, `spread` in pips, `high`, `low` and `open`, with no timestamp. The answer names no period for `high`, `low` and `open`, so do not present them as the range or the open of a day: take the range of a period from the bars of `get_trendbars`. For a symbol without a live quote it answers a tool error, and `get_symbol_details` shows `bid` and `ask` as `null`. Then, with the user's agreement, open a chart of the symbol with `open_chart`, read the quote again, and close that chart afterwards; if there is still no quote, tell the user the price is not available.
 
 ## Trendbars
 
-`get_trendbars` takes `symbolName`, `timeframe`, `from` and `to` (ISO 8601 UTC with `Z`) and an optional `limit`; take the timeframe values from the description of `timeframe` and the default and cap of `limit` from the description of `limit`, since the schema states them only as text, with no list, default or maximum key. Send `from` earlier than `to`. The answer includes the bars that open at `from` and at `to`. When the window holds more bars than `limit`, the answer sets `truncated` to `true` and holds the newest bars of the window; the older bars are not in it.
+`get_trendbars` takes `symbolName`, `timeframe`, `from` and `to` (ISO 8601 UTC with `Z`) and an optional `limit`; take the timeframe values from the description of `timeframe` and the default and cap of `limit` from the description of `limit`, since the schema states them only as text, with no list, default or maximum key. Send `from` earlier than `to`. The answer includes the bars that open at `from` and at `to`. When the window holds more bars than `limit`, the answer sets `truncated` to `true` and holds the newest bars of the window; the older bars are not in it. The bar still forming is not among the bars returned, also when `to` is the current time: for a range that reaches the present, cover the time since the last bar returned with the bars of a shorter timeframe, and add the current quote of `get_spot_prices`.
 
 ## Positions and pending orders
 
@@ -171,7 +171,7 @@ Send every time as ISO 8601 UTC with `Z`, converting a time the user gives in an
 
 On positions and pending orders alike, `stopLossPrice` and `takeProfitPrice` are absolute prices and `stopLossPips` and `takeProfitPips` distances in pips; a leg that is not set reads `null`. On a long position, `stopLossPips` reads positive both for a stop below the entry and for one above it, so compare `stopLossPrice` with `entryPrice` to tell whether a stop sits on the loss side or the profit side.
 
-Read-back names: a limit order's `limitPrice` reads back as `targetPrice`, `side` reads back as `tradeSide`, and `expiresAt` reads back as `expiration`. A stop-limit order reads back its stop price as `targetPrice`; no read field holds its limit price, so keep the limit price from the request. Values in the answers are PascalCase, for example `tradeSide` `Buy` and `orderType` `StopLimit`.
+Read-back names: a limit order's `limitPrice` reads back as `targetPrice`, `side` reads back as `tradeSide`, and `expiresAt` reads back as `expiration`. A stop-limit order reads back its stop price as `targetPrice`. For a stop-limit order this conversation placed through the Local server, its limit equals `targetPrice`, as [local-trading.md](local-trading.md) describes; for any other stop-limit order, the Local reads do not show its limit. Never report the requested `limitPrice` as the order's limit. Values in the answers are PascalCase, for example `tradeSide` `Buy` and `orderType` `StopLimit`.
 
 ## History
 
@@ -179,7 +179,7 @@ Read-back names: a limit order's `limitPrice` reads back as `targetPrice`, `side
 
 On a `get_order_history` item whose `swap` is 0, `netProfit` is `grossProfit` plus `commission` (`commission` is negative). On an item with a non-zero `swap`, compare the fields before you report a result: when `netProfit` equals `grossProfit` plus `commission` plus `swap`, it already contains the swap; when it equals `grossProfit` plus `commission`, add the item's `swap` to it. Judge a trade's result by `grossProfit` and `netProfit`, and report `pips` beside them as the move in pips. For an open position, report `grossProfit` and `netProfit` as `get_positions` gives them; do not derive one from the other.
 
-`get_deals` items carry `orderId`, `positionId`, `symbolName`, `dealType`, `side`, `filledVolume` in units, `executionPrice`, `entryPrice`, `pips`, `grossProfit`, `commission`, `swap`, `netProfit` and `time`; tell deals apart by `orderId`. The deals `get_deals` returns are those that closed all or part of a position; opening fills are not among them. Each closing step, partial or final, is its own deal and its own trade. Read a position's opening from `get_positions` while it is open, and from `openTime` and `entryPrice` of its `get_order_history` items after it closed.
+`get_deals` items carry `orderId`, `positionId`, `symbolName`, `dealType`, `side` (the position's side, not the side of the closing execution), `filledVolume` in units, `executionPrice`, `entryPrice`, `pips`, `grossProfit`, `commission`, `swap`, `netProfit` and `time`; tell deals apart by `orderId`. The deals `get_deals` returns are those that closed all or part of a position; opening fills are not among them. Each closing step, partial or final, is its own deal and its own trade. Read a position's opening from `get_positions` while it is open, and from `openTime` and `entryPrice` of its `get_order_history` items after it closed.
 
 Page `get_deals` only by parameters its schema lists. When it lists only `symbolName` and `count`, it returns the newest deals up to `count` (default and cap in the description of `count`), oldest first, and older deals cannot be read through it; take a longer history from `get_order_history`.
 
@@ -199,7 +199,7 @@ A refused Local call answers a tool error, and nothing is placed or changed. The
 
 1. Read `get_positions` and `get_pending_orders`, both without arguments.
 2. For each position, report the symbol, `tradeSide`, the size from `volumeInUnits` with `volumeInLots`, `entryPrice`, `currentPrice`, the stop loss and take profit as prices and in pips (a leg that reads `null` is not set), and `grossProfit` and `netProfit` as returned, in the account currency.
-3. For each pending order, report the symbol, `tradeSide`, `orderType`, the size, `targetPrice`, the protections and `expiration`; a stop-limit order's limit price stands in no field.
+3. For each pending order, report the symbol, `tradeSide`, `orderType`, the size, `targetPrice`, the protections and `expiration`; for a stop-limit order, report its limit as [Positions and pending orders](#positions-and-pending-orders) describes.
 4. Read `get_balance` and report balance, equity, margin and free margin as returned.
 
 ## Recipe: history and bars over a long window

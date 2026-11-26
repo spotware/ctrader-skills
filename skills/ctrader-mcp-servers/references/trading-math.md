@@ -1,5 +1,7 @@
 # Trading math
 
+The layer file of the connected server is its data file and its trading file: `remote-data.md` and `remote-trading.md` for the Remote server, `local-data.md` and `local-trading.md` for the Local server.
+
 ## Pips, pip size and distances
 
 A distance in pips is a price distance divided by the symbol's pip size. Give pip distances only where the symbol's pip size is known; otherwise state distances in price.

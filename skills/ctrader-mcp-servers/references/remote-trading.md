@@ -4,7 +4,7 @@
 
 `create_order`, `amend_order`, `cancel_order`, `amend_position` and `close_position` exist only on a trading-profile connection: check the profile with `get_session_status`, as `remote-data.md` describes. Each of these calls needs the confirmation `SKILL.md` describes, and the confirmation of an order covers the one corrective call named there.
 
-On a data profile, propose the trade through the link tools (trade links below). To trade directly, the user connects with the Remote MCP token that cTrader Web issues for the trading account.
+On a data profile, propose the trade, or a change to a position or a pending order, through the link tools (trade links below). To trade directly, the user connects with the Remote MCP token that cTrader Web issues for the trading account.
 
 ## Order types
 
@@ -18,7 +18,7 @@ On a data profile, propose the trade through the link tools (trade links below).
 
 A STOP_LIMIT order takes `stopPrice` and `slippageInPoints`, the distance of its limit from `stopPrice` in points of 10^-digits; `limitPrice` is refused on STOP_LIMIT. Every `amend_order` of a STOP_LIMIT carries `slippageInPoints`, and no answer or read returns it: keep the value sent at creation and resend it. For a STOP_LIMIT order placed outside this conversation, ask the user for the distance of its limit from its stop price before any amend, and never send a guessed value: the value sent sets the order's limit. `amend_order` takes only a value above 0, though `create_order` accepts 0. Compute the value with `pip_math.py distance --price-distance <price-distance> --digits <digits>`, which prints it as `points`.
 
-A MARKET_RANGE order needs `baseSlippagePrice` (a display price) and `slippageInPoints`; `baseSlippagePrice` is refused on every other order type.
+A MARKET_RANGE order needs `baseSlippagePrice` (a display price) and `slippageInPoints`, the maximum distance from `baseSlippagePrice` in points of 10^-digits; `baseSlippagePrice` is refused on every other order type. Unless the user names the base price, take it from the quote read just before the call, on the side the order trades at: the ask for a buy, the bid for a sell, divided by 100000 and rounded to the symbol's `digits`. Count `slippageInPoints` from that base: compute it from the bound the user gives with `pip_math.py distance --price-distance <price-distance> --digits <digits>`, which prints it as `points`. The confirmation of `SKILL.md`, step 3, names the base price and the bound.
 
 ## Order inputs
 
@@ -26,7 +26,7 @@ A MARKET_RANGE order needs `baseSlippagePrice` (a display price) and `slippageIn
 
 `comment` and `label` have a length limit in the schema, counted in UTF-16 code units, so a character such as an emoji can count as several; a longer value is refused, never cut. Both are set at creation only (`amend_order` and `amend_position` take neither) and echoed on the orders and positions the order and position tools return; `label` also appears on the closing orders `close_position` makes. An absent key means the value was never set; an empty string is a stored value.
 
-Set a `clientOrderId` on every `create_order`, within the schema's length limit, and one that no earlier order carries, as `SKILL.md`, step 2, describes: a `create_order` that repeats an earlier `clientOrderId` is answered with that earlier order, and nothing is placed. When a `create_order` call times out or answers `UPSTREAM_ERROR` or `UPSTREAM_UNAVAILABLE`, the order may still exist: call `get_order_by_client_order_id` with that id; on 404 `ORDER_NOT_FOUND`, resend the same request with the same id; when it returns an order, that order exists and nothing is resent. A `create_order` refused with any other code is handled by that code and is never resent unchanged. `label` does not prevent duplicates. Do not send two `create_order` calls with the same `clientOrderId` at the same time: both can be created. For an order not yet filled, the lookup answers `orderId`, `positionId`, `executionType` and `order` and no `position`: read the position with `get_position_details`.
+Set a `clientOrderId` on every `create_order`, within the schema's length limit, and one that no earlier order carries, as `SKILL.md`, step 2, describes: a `create_order` that repeats an earlier `clientOrderId` is answered with that earlier order, and nothing is placed. When a `create_order` call times out or answers `UPSTREAM_ERROR` or `UPSTREAM_UNAVAILABLE`, the order may still exist: call `get_order_by_client_order_id` with that id; on 404 `ORDER_NOT_FOUND`, resend the same request with the same id; when it returns an order, that order exists and nothing is resent. A `create_order` answered 429 is resent unchanged, with the same `clientOrderId`, after the wait `Retry-After` (or `retryAfter`) gives. A `create_order` refused with any other code is handled by that code and is never resent unchanged. `label` does not prevent duplicates. Do not send two `create_order` calls with the same `clientOrderId` at the same time: both can be created. For an order not yet filled, the lookup answers `orderId`, `positionId`, `executionType` and `order` and no `position`: read the position with `get_position_details`.
 
 ## Protections when placing
 
@@ -70,6 +70,8 @@ An accepted call answers with `executionType` `ORDER_REPLACED` and the stop loss
 
 `amend_order` takes no side; an order keeps the side it was placed with.
 
+On a data profile, `amend_order` does not exist: read the order from `get_pending_orders`, build `cancel_order_link` with its `orderId`, say which change to make, and report the link as one that changes nothing until the trader changes the order in cTrader.
+
 ## Closing and canceling
 
 `close_position` requires `volume`: to close in full, send the position's current `volume` from `get_position_details`. `close_position` closes the `volume` it is sent and leaves the rest of the position open. No step rule is stated for the closed volume or for what remains; a volume the server refuses goes to the user (`remote-data.md`). After a partial close, read `takeProfit` and `advancedTakeProfit` back and tell the user when they changed.
@@ -82,9 +84,11 @@ An accepted call answers with `executionType` `ORDER_REPLACED` and the stop loss
 
 `create_order_link`, `close_position_link` and `cancel_order_link` return a link the trader opens in cTrader; they place, close and cancel nothing, so never report the action as done. `create_order_link` takes volume in the `create_order` unit (omitted, cTrader prefills its own default size, which can be far larger than intended), `range` in pips (required for stop-limit, optional for market, refused for limit and stop) and `expiry` as an integer in epoch milliseconds. Put a buy's stop loss below the entry and its take profit above it, a sell's the other way round: a level on the wrong side leaves the link unplaceable in cTrader.
 
+`close_position_link` and `cancel_order_link` also serve a change: `close_position_link` opens a position, by the `positionId` of `get_positions`, where the trader closes it or changes its stop loss or take profit, and `cancel_order_link` opens a pending order, by the `orderId` of `get_pending_orders`, where the trader cancels or changes it. On a data profile they are the way to change a position's protections or a pending order: say which change to make, and report the link as one that changes nothing until the trader acts in cTrader.
+
 Pass `volume` to `create_order_link` whenever a size was discussed; without it, tell the trader to set the volume in cTrader before pressing Place. The link carries the account of this connection, and cTrader switches to that account first; when the result says the account number is unavailable, tell the trader to check the active account in cTrader before pressing Place.
 
-`range` is a count of pips: pass a range the user gave in pips, and turn a price distance into pips only where the symbol's pip size is known. A stop-limit link cannot be built without `range`, so when neither holds, ask the user for the limit range in pips, or for the symbol's pip size, before building the link. Leave `range` out of a market link in that case.
+`range` is a count of pips: pass a range the user gave in pips, and turn a price distance into pips only where the symbol's pip size is known. When the user gave the range as a price distance and the pip size is not known, ask the user for the range in pips, or for the symbol's pip size, before building the link: a stop-limit link cannot be built without `range`, and a market link without it carries no slippage bound. Build a market link without that bound only when the user agrees to go without it, and say in the reply that the link carries no slippage bound.
 
 ## Recipe: open a position
 
@@ -97,17 +101,17 @@ Pass `volume` to `create_order_link` whenever a size was discussed; without it, 
 
 ## Recipe: change protections
 
-1. Read the position with `get_position_details`: its `stopLoss`, `takeProfit` and the `advancedTakeProfit` levels of the `position` object.
+1. Call `get_session_status`. On a data profile, `amend_position` does not exist: read the position from `get_positions`, build `close_position_link` with its `positionId`, say which change to make, and report the link as one that changes nothing until the trader changes the stop loss or take profit in cTrader; the steps below need a trading profile. On a trading profile, read the position with `get_position_details`: its `stopLoss`, `takeProfit` and the `advancedTakeProfit` levels of the `position` object.
 2. Build one `amend_position` with the new value of each leg that changes, the current value of each leg that stays, and every level that stays, after totaling the level volumes against the current volume.
 3. Tell the user which leg or level the call removes, show the exact call, and confirm it as the rules for order-changing calls in `SKILL.md` describe.
 4. Send it, read the position back with `get_position_details`, and report what the read shows.
 
-For a pending order, change its protections with `amend_order`, as the section on amending a pending order says.
+For a pending order, change its protections as the section on amending a pending order says: with `amend_order` on a trading profile, through `cancel_order_link` on a data profile.
 
 ## Recipe: close all or part, flatten
 
-1. Call `get_session_status`. On a data profile, build `cancel_order_link` for each order and `close_position_link` for each position, and report them as links that cancel and close nothing, the cancel links first: tell the user to open those before the close links, so that no order fills while the positions close.
-2. Call `get_positions` for every position and pending order.
+1. Call `get_session_status`.
+2. Call `get_positions` for every position and pending order. On a data profile, build from that read `cancel_order_link` for each order and `close_position_link` for each position, and report them as links that cancel and close nothing, the cancel links first: tell the user to open those before the close links, so that no order fills while the positions close; the steps below need a trading profile.
 3. Show the user the exact list of closes and cancels, and confirm it as the rules for order-changing calls in `SKILL.md` describe.
 4. Cancel the orders of that list first, one at a time, so that none fills while the positions close: send `cancel_order`, and read `get_pending_orders` before the next call to see that the order is gone. When the read still lists it, stop there: report the order as still working, and send no further cancel and no close until the user says so.
 5. Close the positions one at a time: read the position with `get_position_details`, send `close_position` with its current volume from that read, or with the part the user named, and read `get_positions` before the next call to see that the position is gone, or which volume a part left. Do not retry a 409 `POSITION_NOT_OPEN`.
@@ -122,5 +126,7 @@ Give `position_sizing.py` the stop distance as a price distance (`--price-distan
 Send the `cents` it prints as `volume`.
 
 Convert each quote with `units_encoding.py quote-to-price` (value / 100000), and name each row through its `symbolId`, before passing it to `conversion_rate.py compute-chain --quotes` or `tiered_margin.py compute --quote-rate-usd`.
+
+For `--conversion-rate` of `position_sizing.py`, run `conversion_rate.py compute-chain` with `--from-asset` the symbol's quote currency, read from `get_assets` as `remote-data.md` says, and `--to-asset` the account currency; the rate is 1 when the two are the same currency.
 
 Take the lot size for `--lot-size` as `remote-data.md` gives it.

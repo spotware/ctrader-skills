@@ -6,7 +6,7 @@ Start with `get_session_status`: it reports `status`, `plant`, `environment` (de
 
 `create_order`, `amend_order`, `cancel_order`, `amend_position` and `close_position` exist only on a trading-profile connection; `get_session_status` reports the profile. The tool list alone does not show that the connection's token is accepted: call `get_session_status` to check the session; when it answers `UNAUTHORIZED`, relay the message and stop.
 
-On a data profile, propose the trade through the link tools. To trade directly, the user connects with the Remote MCP token that cTrader Web issues for the trading account (Settings, Remote MCP; one token per trading account), as the cTrader Help Centre setup page describes.
+On a data profile, propose the trade, or a change to a position or a pending order, through the link tools (`remote-trading.md`). To trade directly, the user connects with the Remote MCP token that cTrader Web issues for the trading account (Settings, Remote MCP; one token per trading account), as the cTrader Help Centre setup page describes.
 
 `get_version` returns `service`, `version` and `buildTime`. Use them in a report, never to choose what to do.
 
@@ -20,7 +20,7 @@ On a data profile, propose the trade through the link tools. To trade directly, 
 | `get_version` | both | Service name, version and build time |
 | `get_balance` | both | Balance, equity and free margin in minor units, with `moneyDigits` and `depositAssetId` |
 | `get_assets` | both | Assets (currencies) and their ids |
-| `get_symbols` | both | Symbols with their `symbolId`, `symbolName`, `digits` and `pipPosition` |
+| `get_symbols` | both | Symbols with their `symbolId`, `symbolName`, `digits`, `pipPosition`, `baseAssetId` and `quoteAssetId` |
 | `get_spot_prices` | both | Current bid and ask of the symbols requested by id or name |
 | `get_trendbars` | both | Price bars of one symbol and `period` |
 | `get_positions` | both | Every open position and pending order |
@@ -45,15 +45,17 @@ Order placement, protections, closing and links are described in `remote-trading
 1. Confirm from the client's tool list that the server in use is this one, as `SKILL.md` describes.
 2. Call `get_session_status`: read `environment` (demo or live), `profile` and `authMode`; the account number is `login`. Handle `UNAUTHORIZED` as the first section says.
 3. Call `get_balance`, scale its money as the money section says, and resolve `depositAssetId` to a currency name with `get_assets`, passing it in `assetIds`.
-4. Call `get_symbols` only when the task needs `digits`, `pipPosition` or the `symbolId` map.
+4. Call `get_symbols` only when the task needs `digits`, `pipPosition`, the `symbolId` map or a symbol's `baseAssetId` and `quoteAssetId`.
 
 ## Symbols and lot size
 
 `create_order`, `create_order_link`, `get_spot_prices` and `get_trendbars` take `symbolName` in place of the numeric `symbolId`, exactly one of the two (`get_spot_prices` takes ids, names or both), and match it exactly, case included; an unknown name fails the whole call with `INVALID_REQUEST`, and the refusal lists the case-insensitive near-matches with their ids. Take symbol names and `digits` from `get_symbols` of the connected server.
 
-Call `get_symbols` only for `digits`, `pipPosition` or the `symbolId` map, and pass `names` or `symbolIds` for the symbols the task needs. The answer can still hold every symbol of the account, on a large plant several MB and thousands of symbols: take the rows of the task by `symbolId` or `symbolName` and keep them for the session. Matching the rows of a quote read for several symbols needs that map, so such a read calls `get_symbols` once per session. Call `get_assets` with `assetIds` or `names` the same way, keep its rows for the session as well, and read both again in a new session.
+Call `get_symbols` only for `digits`, `pipPosition`, the `symbolId` map or the asset ids `baseAssetId` and `quoteAssetId`, and pass `names` or `symbolIds` for the symbols the task needs: the full list is 800+ symbols. The answer can hold every symbol of the account also when `names` or `symbolIds` are passed: take the rows of the task by `symbolId` or `symbolName`, never by their position in the answer, read no number of matches from the number of rows, and keep the rows for the session. Matching the rows of a quote read for several symbols needs that map, so such a read calls `get_symbols` once per session. Call `get_assets` with `assetIds` or `names` the same way: its answer can hold every asset of the server as well, so take its rows by `assetId` or `name`, never by their position, keep them for the session, and read both again in a new session.
 
-This server serves no lot size, volume step or minimum volume and has no symbol-details tool; a `get_symbols` item carries `digits` and `pipPosition`. Its served text gives the lot size by instrument class: forex 100000, metals 100 (XAUUSD), indices and crypto 1, as typical values; the broker's value for the symbol decides. Say which lot size a size rests on, and for a symbol outside these classes ask the user for the lot size before sizing.
+A symbol's quote currency is the `name` of the `get_assets` row whose `assetId` equals the symbol's `quoteAssetId`, and its base currency the `name` of the row whose `assetId` equals its `baseAssetId`. Take both from there for every symbol, also for one whose name does not spell its currencies.
+
+This server serves no lot size, volume step or minimum volume and has no symbol-details tool; a `get_symbols` row carries `digits` and `pipPosition` but no volume field. Its served text gives the lot size by instrument class: forex 100000, metals 100 (XAUUSD), indices and crypto 1, as typical values; the broker's value for the symbol decides. Say which lot size a size rests on, and for a symbol outside these classes ask the user for the lot size before sizing.
 
 When the lot size of such a symbol stays in doubt, offer the user a test order of the smallest volume: place it only after the user confirms it like any other order, inspect the position it opens before sizing up, and close it.
 
@@ -103,7 +105,7 @@ A position whose `positionStatus` is `POSITION_STATUS_CLOSED`, with no `openTime
 
 A position's full commission is `commission + closedCommission` and its full swap `swap + closedSwap`.
 
-Positions carry no `unrealizedPnl`, and no `grossProfit` or `netProfit` before a first close. Estimate the floating profit from the current quote (value / 100000; the bid for a buy, the ask for a sell), `entryPrice` and the volume in base units (volume / 100), convert the result to the account currency (`trading-math.md`), and call it an estimate. `grossProfit`, `netProfit`, `closedCommission` and `closedSwap` are realized totals: they appear once any part of the position is closed, so an open position after a partial close carries them too. Report them as the realized result of the closed part, apart from the estimate.
+Positions carry no `unrealizedPnl`, and no `grossProfit` or `netProfit` before a first close. Estimate the floating profit from the current quote (value / 100000; the bid for a buy, the ask for a sell), `entryPrice` and the volume in base units (volume / 100), convert the result from the quote currency of the symbol, taken from `get_assets` as the symbols section says, to the account currency with `conversion_rate.py compute-chain --from-asset <quote-currency> --to-asset <account-currency> --quotes <quotes>` (`trading-math.md`), and call it an estimate. `grossProfit`, `netProfit`, `closedCommission` and `closedSwap` are realized totals: they appear once any part of the position is closed, so an open position after a partial close carries them too. Report them as the realized result of the closed part, apart from the estimate.
 
 ## Deals and order history
 
@@ -135,11 +137,11 @@ Every failed call returns `{"error":{"code":"<code>","message":"<text>","httpSta
 | --- | --- |
 | `INVALID_REQUEST` | Correct the request as the message says (for example split a window it names as too wide, or add a field it names as missing) and resend. An order-changing call whose correction changes a value the user confirmed, such as a price, a distance, a volume or a protection, is a new call: show it and get a yes as `SKILL.md` describes before sending it. |
 | 400 `TRADING_BAD_VOLUME` | The volume was refused, and the message gives its figures in base units: put the size to the user instead of rounding it. |
-| 404 `UNKNOWN_SYMBOL`, `POSITION_NOT_FOUND`, `ORDER_NOT_FOUND` | Correct the symbol or id. |
+| 404 `UNKNOWN_SYMBOL`, `POSITION_NOT_FOUND`, `ORDER_NOT_FOUND` | Correct the symbol or id. On `get_order_by_client_order_id`, 404 `ORDER_NOT_FOUND` means that no order carries the id: before a `create_order` the id is free (`SKILL.md`, step 2), and after a `create_order` that timed out or answered `UPSTREAM_ERROR` or `UPSTREAM_UNAVAILABLE`, the same request is resent with the same id (`remote-trading.md`). |
 | 409 `POSITION_NOT_OPEN` | Do not retry. |
-| `UPSTREAM_ERROR`, `UPSTREAM_UNAVAILABLE`, `INTERNAL_ERROR` | Do not rewrite the request; report to the user, after the lookup by `clientOrderId` when the call was a `create_order` that timed out or answered one of the two upstream codes (`remote-trading.md`). |
+| `UPSTREAM_ERROR`, `UPSTREAM_UNAVAILABLE`, `INTERNAL_ERROR` | Do not rewrite the request; report to the user. When a `create_order` timed out or answered `UPSTREAM_ERROR` or `UPSTREAM_UNAVAILABLE`, call `get_order_by_client_order_id` with its `clientOrderId` first: on 404 `ORDER_NOT_FOUND`, resend the same request with the same id; when an order comes back, report that order and resend nothing (`remote-trading.md`). |
 | `UNAUTHORIZED` | Relay the message and stop, as the first section says. |
-| 429 | Wait for `Retry-After` (or `retryAfter`), then resend. |
+| 429 | Wait for `Retry-After` (or `retryAfter`), then resend the same request, a `create_order` with the same `clientOrderId`. |
 
 ## Recipe: book snapshot
 
@@ -170,5 +172,5 @@ Every failed call returns `{"error":{"code":"<code>","message":"<text>","httpSta
 
 1. Call `get_spot_prices` once for the symbols compared; match rows by `symbolId`, and name a symbol without a row, or with `error`, as without a price.
 2. Take each spread as (ask - bid) / 100000.
-3. Take the spread cost of a size as spread x volume / 100, in the quote currency, and convert it to the account currency with `conversion_rate.py compute-chain` (`trading-math.md`).
+3. Take the spread cost of a size as spread x volume / 100, in the quote currency of the symbol, the `get_assets` name of its `quoteAssetId` as the symbols section says, and convert it to the account currency with `conversion_rate.py compute-chain --from-asset <quote-currency> --to-asset <account-currency> --quotes <quotes>` (`trading-math.md`).
 4. Leave commission and swap out of the comparison and say so: no tool serves their rates.

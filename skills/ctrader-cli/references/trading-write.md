@@ -24,7 +24,7 @@ Before:
 After:
 
 6. Find the output line that names the account the command used (`Using account: #<account> ...` or `Using your only account: #<account> ...`) and check that it is the number you passed. The line can be missing, as on a command that ends in invalid usage; read back all the same.
-7. Read the entity back on the same account, with the read of step 4, and compare every value you set with what you wrote down. A value that reads back empty, at its default, or different means an option did not apply.
+7. Read the entity back on the same account, with the read of step 4, and compare every value you set with what you wrote down. A value that reads back empty, at its default, or different means an option did not apply. After `run`, read `cbots` from a second call while the run is going, and after `stop`, read `cbots` again: `references/algo-lifecycle.md` describes both.
 8. When a stop loss or take profit the user authorized did not apply, set exactly that level at once with the matching modify command and tell the user, with the read-back before and after. Any other value that differs from what you wrote down, such as the volume, the price, the side or an alert level, waits for the user: report it and change nothing. Do not repeat the original command: it would open a second order or position. The modify call follows the same steps; the section on protection levels says what `0` or an omitted level does on modify.
 
 Steps 1 and 2 prevent a dropped option; steps 6 and 7 detect one that slipped through, because under `-q` the command itself gives no sign.

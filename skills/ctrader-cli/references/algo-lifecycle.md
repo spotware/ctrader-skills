@@ -110,11 +110,13 @@ The form is `ctrader-cli run "<algo>" ["<cbotset>"] --account=<account> --symbol
 
 Batch `run` blocks in the foreground, streaming output to standard output until the instance exits; pass `--exit-on-stop` when you want the process to end on its own once the algo stops itself, and otherwise plan to terminate it externally (the external `timeout` wrapper, or a signal) rather than expecting it to return control to you.
 
+Start `run` so that the shell stays free for other calls, such as in the background with its standard output and standard error captured to files. While the run is going, read `cbots` from a second call: that read is the read-back of `run`. Report the instances `cbots` lists, and take the id for `stop --instance=<id>` from that list.
+
 `--reconnect-timeout=<sec>`, where `--help` lists it, ends `run` with a non-zero exit code when the trading account session cannot be restored within that many seconds; without it, `run` keeps reconnecting.
 
 ## Running instances
 
-`cbots` lists the running cBot instances; `stop --instance=<id>` stops one instance. Both run through the command shell, so call them with `-q` like every shell-routed command. To stop every instance, `--commands` lists the shell form `stop all` and `--help` the option `--all`; both change state. Stopping an instance you started at the user's request is cleanup; any other `stop`, and `stop all`, needs the user's authorization.
+`cbots` lists the cBot instances currently running on the account; `stop --instance=<id>` stops one instance, by an id from that list. Both run through the command shell, so call them with `-q` like every shell-routed command. To stop every instance, `--commands` lists the shell form `stop all` and `--help` the option `--all`; both change state. Stopping an instance you started at the user's request is cleanup; any other `stop`, and `stop all`, needs the user's authorization.
 
 ```bash
 timeout 30 ctrader-cli cbots --account=<account> -e -q </dev/null
