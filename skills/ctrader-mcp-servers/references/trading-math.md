@@ -104,7 +104,7 @@ python <skill folder>/scripts/conversion_rate.py compute-chain --from-asset EUR 
 
 ## P&L of a closed trade
 
-A closed trade's net figure already contains its commission; the layer file says whether it contains the swap as well. The result of a round trip is the sum of the net figures of its closing steps, read as the layer file describes; add no commission back.
+A closed trade's net figure already contains its commission; the layer file says whether it contains the swap as well. The result of a round trip is the sum of the net figures of every closing step of the trip, read as the layer file describes; add no commission back. A sum over part of its closing steps is presented as the result of those closes, as the layer file describes.
 
 ## Hedging and netting
 
@@ -112,7 +112,7 @@ Before an order opposite an open position, ask the user whether the account hedg
 
 ## Margin level and stop-out
 
-Margin level is equity minus the estimated closing commission, divided by the used margin, as a percentage. Take the used margin a margin level needs from a tool of the connected server; where no tool serves it, say that the margin level cannot be given.
+Margin level is equity minus the estimated closing commission, divided by the used margin, as a percentage. Take the margin level from a tool of the connected server where one serves it. Where none does, as on the Remote server, say that the margin level is not served, because it rests on the estimated closing commission, which no Remote tool returns, and give equity, free margin and the used margin derived from them instead, as `remote-data.md` describes; do not compute a margin level from the derived used margin.
 
 The broker alone sets the stop-out level, and no tool serves it: name no level. The cTrader Help Centre documents two stop-out types: fair closes the position with the largest margin in full, and smart closes part of that position, rounded up to the symbol's volume step.
 

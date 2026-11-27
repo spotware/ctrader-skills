@@ -38,19 +38,19 @@ Batch `symbols` returns `Id`, `Name` and `Description` per entry. `symbols -q` r
 | `order` | no | `-q`, `--order=<order-id>` | read the field names from the result |
 | `position` | no | `-q`, `--position=<position-id>` | one entry of `positions`, without the array |
 | `exposure` | no | `-q` | `{"exposures": [...]}`, a plural key for a singular command |
-| `deals` | no | `-q`, with `--symbol=`, `--count=`, `--from=`, `--to=` | the `deals` array with `count`, plus `from` and `to` in the range form |
-| `orders-history` | no | `-q`, with `--count=` or `--from=` and `--to=` | the array under `orders`: `requested`, `returned`, `lookbackDays` (and `available` when more exist) in the count form; `from`, `to`, `returned`, `available` in the range form |
+| `deals` | no | in one shell session, the arguments by position, as `references/commands.md` describes | the `deals` array with `count`, plus `from` and `to` in the range form |
+| `orders-history` | no | in one shell session, the arguments by position, as `references/commands.md` describes | the array under `orders`: `requested`, `returned`, `lookbackDays` (and `available` when more exist) in the count form; `from`, `to`, `returned`, `available` in the range form |
 | `alerts` | no | `-q` | `{"alerts": [...]}` |
 | `indicators`, `indicator parameters`, `indicator calculate`, `indicator history` | no | `-q`, `--indicator="<title>"` | camelCase after the banner and the header |
 | `cbots` | no | `-q` | read the result as printed |
 | `stop` | no | `-q`, `--instance=<id>`, sent only as `references/algo-lifecycle.md` allows | read the result as printed |
 | commands that change an order, a position or an alert | no | `-q`, added only after the user's authorization | a JSON object with the id and a `status` word |
 
-`orders-history` has no symbol form: a `--symbol=` passed to it is left out, and the call returns every order.
+`orders-history` has no symbol form: `--commands` lists none for it, and on a launch line a `--symbol=` passed to it is left out, and the call returns every order.
 
-Pass every argument of a shell-routed command as its named option at launch (`--symbol=<name>`, `--order=<order-id>`, `--indicator="<title>"`, `--count=<n>`); that form works on every build. Builds read a bare positional at launch differently, so never rely on one.
+Pass every argument of a shell-routed command as its named option at launch (`--symbol=<name>`, `--order=<order-id>`, `--indicator="<title>"`, `--count=<n>`); that form works on every build. Builds read a bare positional at launch differently, so never rely on one. Inside a shell session a command takes its arguments by position, as `ctrader-cli --commands` lists them, and refuses a `--name=value` option; `references/commands.md` gives the session form of `orders-history` and `deals`.
 
-Use `-q` on shell-routed reads. Exit 0 alone never proves that the command you meant ran: confirm it from the header line and the payload.
+Use `-q` on shell-routed reads on a launch line; `orders-history` and `deals` are read in one shell session instead. Exit 0 alone never proves that the command you meant ran: confirm it from the header line and the payload.
 
 ## Output shapes
 
@@ -87,7 +87,7 @@ Find the result by content, never by position:
 
 The bundled script applies this rule to a capture. Run it with the interpreter and its path under the skill's folder, as `SKILL.md` shows: `python3 <skill folder>/scripts/extract_result.py --file=<path> --key=<name>` (`python` or `py` on Windows). It takes the capture as `--file=<path>` or as `--text=<captured text>`, in one of three modes:
 
-- `--key=<name>` takes the bare key name, as in `--key=Live`, and prints `{"result": <value>, "line": <n>}`, the value and the line of its opening bracket. When no value holds the key and a line, or the message of a log line, is exactly `[]`, it prints `{"result": [], "line": <n>}`; that is an empty result only when the command exited 0, which the script is not given.
+- `--key=<name>` takes the bare key name, as in `--key=Live`, and prints `{"result": <value>, "line": <n>}`, the value and the line of its opening bracket. When no value holds the key and a line, or the message of a log line, is exactly `[]`, it prints `{"result": [], "line": <n>}`; that is an empty result only when the command exited 0, which the script is not given. `--last`, given with `--key`, prints the last value that holds the key instead of the first, as for the last of several results of one command in a shell session.
 - `--periods` prints the tokens in the order printed, from the plain line when one exists and from the message of a log line otherwise.
 - `--message=<text>` prints `{"text": <line>, "line": <n>}` for the first plain line that starts with the text, or else for the message of the first log line that starts with it.
 
@@ -101,7 +101,7 @@ Blank and `#` lines are ignored; `q` leaves the shell. A session fed on standard
 printf 'accounts\nsymbols\nq\n' | timeout 60 ctrader-cli -e --account=<account> 1>out.txt 2>err.txt; echo "EXIT:$?"
 ```
 
-A piped session is a shell session from start to end: each JSON result is camelCase and wrapped under its command's key, such as `{"accounts": [...]}`, even for `accounts` and `symbols`, which print PascalCase on the batch route. Find each result by the rule above.
+A piped session is a shell session from start to end: each JSON result is camelCase and wrapped under its command's key, such as `{"accounts": [...]}`, even for `accounts` and `symbols`, which print PascalCase on the batch route. Find each result by the rule above. Through the container image a piped session runs as `docker run -i`, as the section `orders-history` of `references/commands.md` shows.
 
 ## Casing and numbers
 

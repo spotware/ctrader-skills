@@ -170,6 +170,52 @@ SELF_TEST_CASES: list[tuple[Any, ...]] = [
         0,
     ),
     (
+        'key, last: a session that sent one command three times prints three results, and --last takes the last',
+        [
+            '--key=deals',
+            '--last',
+            (
+                '--text=cTrader CLI\n\nConnected as trader@example.com on #<account>\n\n'
+                '> [2000-01-01 10:40:33 +00:00] deals 2000-01-01 2000-01-10\n\n'
+                '{\n  "from": "2000-01-01T00:00:00.000Z",\n  "to": "2000-01-10T00:00:00.000Z",\n'
+                '  "deals": [],\n  "count": 0\n}\n'
+                '> [2000-01-01 10:40:38 +00:00] deals 2000-01-01 2000-01-10\n\n'
+                '{\n  "from": "2000-01-01T00:00:00.000Z",\n  "to": "2000-01-10T00:00:00.000Z",\n'
+                '  "deals": [\n    {}\n  ],\n  "count": 1\n}\n'
+                '> [2000-01-01 10:40:43 +00:00] deals 2000-01-01 2000-01-10\n\n'
+                '{\n  "from": "2000-01-01T00:00:00.000Z",\n  "to": "2000-01-10T00:00:00.000Z",\n'
+                '  "deals": [\n    {},\n    {}\n  ],\n  "count": 2\n}\n'
+                '> Bye.\n'
+            ),
+        ],
+        {'result': {'deals': [{}, {}], 'count': 2}, 'line': 25},
+        0,
+    ),
+    (
+        'key: the same session output without --last gives the first result',
+        [
+            '--key=deals',
+            (
+                '--text=cTrader CLI\n\nConnected as trader@example.com on #<account>\n\n'
+                '> [2000-01-01 10:40:33 +00:00] deals 2000-01-01 2000-01-10\n\n'
+                '{\n  "from": "2000-01-01T00:00:00.000Z",\n  "to": "2000-01-10T00:00:00.000Z",\n'
+                '  "deals": [],\n  "count": 0\n}\n'
+                '> [2000-01-01 10:40:38 +00:00] deals 2000-01-01 2000-01-10\n\n'
+                '{\n  "from": "2000-01-01T00:00:00.000Z",\n  "to": "2000-01-10T00:00:00.000Z",\n'
+                '  "deals": [\n    {}\n  ],\n  "count": 1\n}\n'
+                '> Bye.\n'
+            ),
+        ],
+        {'result': {'deals': [], 'count': 0}, 'line': 7},
+        0,
+    ),
+    (
+        'key, last: with no value that holds the key, the last line that is exactly [] is the empty result',
+        ['--key=Live', '--last', '--text=[]\ncTrader CLI\n[]\n'],
+        {'result': [], 'line': 3},
+        0,
+    ),
+    (
         'key: a banner and nothing else finds nothing',
         ['--key=Live', '--text=cTrader CLI\nRun with --help to see all available command-line options.\n'],
         {},
@@ -300,6 +346,7 @@ SELF_TEST_CASES: list[tuple[Any, ...]] = [
     ),
     ('usage: two modes at once', ['--key=Live', '--periods', '--text=[]'], {}, 2),
     ('usage: no mode', ['--text=[]'], {}, 2),
+    ('usage: --last without --key', ['--periods', '--last', '--text=[]'], {}, 2),
 ]
 
 
@@ -325,6 +372,7 @@ def _build_parser() -> argparse.ArgumentParser:
             'this script is not given.\n\n'
             'Examples:\n'
             '  python3 <skill folder>/scripts/extract_result.py --file=out.txt --key=Live\n'
+            '  python3 <skill folder>/scripts/extract_result.py --file=out.txt --key=deals --last\n'
             '  python <skill folder>/scripts/extract_result.py --file=out.txt --periods\n'
             '  py <skill folder>/scripts/extract_result.py --file=out.txt --message=Error:\n'
             '  python3 <skill folder>/scripts/extract_result.py --self-test'
@@ -342,6 +390,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             'The name of a key only the result carries, without quotes or colon, such as Live for batch accounts. '
             'Prints the JSON value that holds "NAME": and the line of its opening bracket.'
+        ),
+    )
+    parser.add_argument(
+        '--last',
+        action='store_true',
+        help=(
+            'With --key only: prints the last value that holds the key instead of the first, such as the result of '
+            'the last of several sends of one command in a shell session.'
         ),
     )
     mode.add_argument(
@@ -411,15 +467,17 @@ def _holds(value: object, key: str) -> bool:
     return False
 
 
-def _find_key(lines: list[str], key: str) -> tuple[object, int] | None:
+def _find_key(lines: list[str], key: str, *, last: bool) -> tuple[object, int] | None:
     """Find the JSON value that holds a key.
 
     From each line that holds ``"<key>":``, go up to the nearest line, that line included, where a JSON value can
-    open, and read one value from that bracket on. The first value that parses and holds the key is the result.
+    open, and read one value from that bracket on. The first value that parses and holds the key is the result, or
+    the last one when ``last`` is set.
 
     Args:
         lines: The lines of the output.
         key: The key.
+        last: Whether the last such value is the result instead of the first.
 
     Returns:
         The value and the 1-based line it opens on, or ``None``.
@@ -429,6 +487,7 @@ def _find_key(lines: list[str], key: str) -> tuple[object, int] | None:
     decoder = json.JSONDecoder()
     offset = 0
     nearest: tuple[int, int] | None = None
+    found: tuple[object, int] | None = None
     for index, line in enumerate(lines):
         bracket = _opening_bracket(line)
         if bracket is not None:
@@ -441,24 +500,30 @@ def _find_key(lines: list[str], key: str) -> tuple[object, int] | None:
         except json.JSONDecodeError:
             continue
         if _holds(value, key):
-            return value, nearest[0] + 1
-    return None
+            found = (value, nearest[0] + 1)
+            if not last:
+                return found
+    return found
 
 
-def _find_empty(lines: list[str]) -> int | None:
+def _find_empty(lines: list[str], *, last: bool) -> int | None:
     """Find the empty result: a line, or the message of a log line, that is exactly ``[]``.
 
     Args:
         lines: The lines of the output.
+        last: Whether the last such line is the result instead of the first.
 
     Returns:
-        The 1-based line of the first one, or ``None``.
+        The 1-based line of the first one, or of the last one when ``last`` is set, or ``None``.
     """
+    found: int | None = None
     for index, line in enumerate(lines):
         message = _message(line)
         if line.rstrip() == _EMPTY or (message is not None and message.strip() == _EMPTY):
-            return index + 1
-    return None
+            found = index + 1
+            if not last:
+                return found
+    return found
 
 
 def _find_periods(lines: list[str]) -> tuple[list[str], int] | None:
@@ -549,11 +614,11 @@ def _answer(args: argparse.Namespace, text: str) -> int:
             return _refuse(f'no line starts with {args.message!r}', EXIT_NOT_FOUND)
         _emit({'text': message[0], 'line': message[1]})
         return EXIT_OK
-    found = _find_key(lines, args.key)
+    found = _find_key(lines, args.key, last=args.last)
     if found is not None:
         _emit({'result': found[0], 'line': found[1]})
         return EXIT_OK
-    empty = _find_empty(lines)
+    empty = _find_empty(lines, last=args.last)
     if empty is None:
         return _refuse(f'no JSON value holds the key "{args.key}" and no line is the empty result []', EXIT_NOT_FOUND)
     _emit({'result': [], 'line': empty})
@@ -671,6 +736,8 @@ def main(argv: list[str] | None = None) -> int:
         return _self_test()
     if args.key is None and not args.periods and args.message is None:
         _usage_error(parser, 'one of --key, --periods or --message is required')
+    if args.last and args.key is None:
+        _usage_error(parser, '--last goes with --key only')
     if args.key == '' or args.message == '':
         _usage_error(parser, 'the value of --key or --message must not be empty')
     file: str | None = args.file

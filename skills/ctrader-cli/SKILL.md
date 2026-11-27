@@ -22,7 +22,7 @@ This skill writes the executable as `ctrader-cli`. On Windows the executable is 
 
 ## Invocation discipline
 
-Use this template for every call except `periods` and `metadata`, adjusting only the timeout as the first rule below says:
+Use this template for every call except `periods`, `metadata`, `orders-history` and `deals`, adjusting only the timeout as the first rule below says:
 
 ```bash
 timeout 30 ctrader-cli <command> [options] -e </dev/null 1>out.txt 2>err.txt; echo "EXIT:$?"
@@ -37,6 +37,8 @@ A build can print a line that repeats the command: on standard error, as the fir
 
 `periods` and `metadata` take no `-e`: both answer it with `Error: Parameter e is not allowed` and exit 1. Call them as `ctrader-cli periods` and `ctrader-cli metadata "<algo>"`; neither needs credentials. Called with `--ctid`, `--pwd-file` and `--account` and no route option, `periods` refuses them: it answers `Error: Parameter <name> is not allowed`, names each refused option, and exits 1.
 
+`orders-history` and `deals` use the session form that `references/commands.md` describes instead of this template: the same command sent three times on standard input of one shell session, and the last result read.
+
 On Windows, bash consumes backslashes in unquoted arguments, so always double-quote Windows paths: `--report-json="C:\reports\run.json"`.
 
 ## Choosing the route
@@ -47,7 +49,8 @@ On Windows, bash consumes backslashes in unquoted arguments, so always double-qu
 | `run`, `backtest`, and `optimize` where `--help` lists it | without `-q` | text; `references/algo-lifecycle.md` describes each |
 | `periods` | bare, with no options | the period tokens as plain text |
 | `create`, `build` | with their named options | a camelCase JSON object |
-| `account`, `account-stats`, `symbol`, `sessions`, `price`, `prices`, `candles`, `orders`, `order`, `positions`, `position`, `exposure`, `orders-history`, `deals`, `alerts`, `indicators`, `indicator`, and every command that changes an order, a position or an alert | with `-q` | camelCase JSON after a banner and a header |
+| `account`, `account-stats`, `symbol`, `sessions`, `price`, `prices`, `candles`, `orders`, `order`, `positions`, `position`, `exposure`, `alerts`, `indicators`, `indicator`, and every command that changes an order, a position or an alert | with `-q` | camelCase JSON after a banner and a header |
+| `orders-history`, `deals` | in one shell session, as `references/commands.md` describes | camelCase JSON after a banner, one result per command sent, each after its header |
 | `cbots`, `stop` | with `-q` | the result as printed; `references/algo-lifecycle.md` describes both |
 
 Options such as `-q`, `--quick`, `--yes` or `--count` send `accounts`, `symbols` and `periods` to the interactive route; `references/routing-and-output.md` lists them all, with the payload of each route.
@@ -67,7 +70,7 @@ python3 <skill folder>/scripts/extract_result.py --file=out.txt --key=Live
 python <skill folder>/scripts/extract_result.py --file=out.txt --key=Live
 ```
 
-Use `python3` on macOS and Linux and `python` on Windows, or `py` where `python` is not on `PATH`. `--key=<name>` prints `{"result": <value>, "line": <n>}`, `--periods` prints the period tokens, and `--message=<text>` prints the first line that starts with the text, such as `Error:`. When no JSON value holds the key and a line is exactly `[]`, the script prints that empty result; it is an empty result only when the command exited 0. When it finds nothing, it prints `{"error": <reason>}` and exits 4. `--help` lists the options, and `--self-test` checks the script on the interpreter at hand. Without Python, apply the written rule.
+Use `python3` on macOS and Linux and `python` on Windows, or `py` where `python` is not on `PATH`. `--key=<name>` prints `{"result": <value>, "line": <n>}`. `--last`, given with `--key`, prints the last value that holds the key instead of the first, as for the last of several results of one command in a shell session. `--periods` prints the period tokens, and `--message=<text>` prints the first line that starts with the text, such as `Error:`. When no JSON value holds the key and a line is exactly `[]`, the script prints that empty result; it is an empty result only when the command exited 0. When it finds nothing, it prints `{"error": <reason>}` and exits 4. `--help` lists the options, and `--self-test` checks the script on the interpreter at hand. Without Python, apply the written rule.
 
 Backtest figures come from the `--report-json` file. The summary on standard output can print a bare `-` where it has no value.
 
@@ -114,11 +117,11 @@ With `-q`, a command skips an option it does not recognize, without a message, a
 1. Run `ctrader-cli --help` before the first state-changing command of the session, and `ctrader-cli --commands` with it: `--help` prints the named options of your build and `--commands` its command words. Build the command from those words and options, spelled exactly as printed.
 2. Check each option against the options `--help` printed: name, hyphens, letter case. Correct or remove any option that listing does not hold before the command runs. For `run`, check each `--<PropertyName>=` override against the `PropertyName` values `metadata` reports instead, case kept.
 3. Put `--account=<account>` on the line, with the number of the account the user named or chose, whose batch `accounts` entry you have just read as `"Live": false`. When the user has named no account and more than one entry reads `"Live": false`, ask the user which account to use and never choose among them. Never run a state-changing command without `--account`.
-4. Read the instrument with `symbol --symbol=<name>` and the state you are about to change with `orders`, `positions` or `alerts`. Before a placement that is the list the new order or position will join, so that the read-back shows what the command added. Write down the values you expect afterwards.
-5. Before each state-changing command, tell the user what it does and on which account: for every command, the account by its `Number` and `Broker` in batch `accounts`; for a placement the symbol, side, volume, prices and levels; for a modify, what it sets and what it keeps; for a cancel or a close, which order or position it is: an order by symbol, side and price, a position by symbol, side and entry price; for a delete or a stop, which alert or instance; for a stop, also that the positions the cBot opened stay open; for `run`, the cBot, its parameters, and how long it works and how it ends. Do it also when the user's message already authorized the exact action and nothing is asked again. For an order with a stop loss or a take profit, say there that a level which does not apply is set to the authorized value at once.
+4. Read the instrument with `symbol --symbol=<name>` and the state you are about to change with `orders`, `positions` or `alerts`. Before a placement that is the list the new order or position will join, so that the read-back shows what the command added. Before `order place-market`, when `positions` shows an open position of the symbol on the other side, read `accountType` with `account`. Write down the values you expect afterwards.
+5. Before each state-changing command, tell the user what it does and on which account: for every command, the account by its `Number` and `Broker` in batch `accounts`; for a placement the symbol, side, volume, prices and levels, and what the user asked for that the CLI cannot set (`references/trading-write.md`, "What the CLI sets on an order"); for a modify, what it sets and what it keeps; for a cancel or a close, which order or position it is: an order by symbol, side and price, a position by symbol, side and entry price; for a delete or a stop, which alert or instance; for a stop, also that the positions the cBot opened stay open; for `run`, the cBot, its parameters, and how long it works and how it ends. Do it also when the user's message already authorized the exact action and nothing is asked again. For an order with a stop loss or a take profit, say there that a level which does not apply is set to the authorized value at once; for an `order place-market` against such a position on an account whose `accountType` is not `Hedged`, say there instead that the levels go back to the user after the read-back.
 6. After the command, find the line that names the account (`Using account: #<account> ...` or `Using your only account: #<account> ...`) and check that it shows the number you passed. The line can be missing, as on a command that ends in invalid usage; read back all the same. Batch `run` prints no such line: check the number in its line `Login to <account>...`, or in the `--account=` value of the line that repeats the command where the build prints one, and confirm the account when the instance shows in the `cbots --account=<account>` read of step 7.
 7. Read the entity back on the same account and compare every value you set with what you wrote down. After `run`, read `cbots` from a second call while the run is going, and after `stop`, read `cbots` again: `references/algo-lifecycle.md` describes both. After `stop`, also read `positions` on the account and report the positions still open.
-8. When a stop loss or take profit the user authorized did not apply, set exactly that level at once with the matching modify command and tell the user, with the read-back before and after. Any other difference waits for the user: report it and change nothing. Never repeat the original command: it would open a second order or position.
+8. When a stop loss or take profit the user authorized did not apply, set exactly that level at once with the matching modify command and tell the user, with the read-back before and after. After an `order place-market` against an open position of the same symbol on the other side, on an account whose `accountType` is not `Hedged`, set no level at once: report what `positions` shows, and when a position of the symbol remains, ask the user which levels it is to carry. Any other difference waits for the user: report it and change nothing. Never repeat the original command: it would open a second order or position.
 
 ## Exit codes
 
