@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Install cTrader Skills for Claude Code or Deep Agents CLI.
+# Install cTrader Skills for Claude Code or Deep Agents Code.
 
 set -euo pipefail
 
@@ -17,7 +17,7 @@ usage() {
     cat <<'EOF'
 Usage: install.sh [OPTIONS] [DIRECTORY]
 
-Install cTrader Skills for Claude Code or Deep Agents CLI.
+Install cTrader Skills for Claude Code or Deep Agents Code.
 
 Arguments:
   DIRECTORY           Target project directory (default: current directory)
@@ -25,8 +25,8 @@ Arguments:
 
 Options:
   --claude            Install for Claude Code (default)
-  --deepagents        Install for Deep Agents CLI
-  --global, -g        Install globally (~/.claude or ~/.deepagents/ctrader_agent)
+  --deepagents        Install for Deep Agents Code
+  --global, -g        Install globally (~/.claude or ~/.deepagents/agent)
                       Default: install in current directory
   --force, -f         Overwrite skills with same names as this package
   --yes, -y           Skip confirmation prompts
@@ -36,7 +36,7 @@ Examples:
   ./install.sh                          # Claude Code, current directory (default)
   ./install.sh ~/my-project             # Claude Code, ~/my-project
   ./install.sh --global                 # Claude Code, ~/.claude
-  ./install.sh --deepagents ~/my-project  # Deep Agents, ~/my-project
+  ./install.sh --deepagents ~/my-project  # Deep Agents Code, ~/my-project
   ./install.sh -f -y                    # Force reinstall, no prompts
 EOF
 }
@@ -101,11 +101,11 @@ if [ "$TARGET" = "claude" ]; then
     TOOL_NAME="Claude Code"
 else
     if [ "$GLOBAL" = true ]; then
-        INSTALL_DIR="$HOME/.deepagents/ctrader_agent"
+        INSTALL_DIR="$HOME/.deepagents/agent"
     else
         INSTALL_DIR="$TARGET_DIR/.deepagents"
     fi
-    TOOL_NAME="Deep Agents CLI"
+    TOOL_NAME="Deep Agents Code"
 fi
 
 echo "------------------------------------------------------------"
@@ -170,12 +170,11 @@ echo "  ls '$INSTALL_DIR/skills/'"
 echo ""
 if [ "$TARGET" = "deepagents" ]; then
     if [ "$GLOBAL" = true ]; then
-        echo "To use this agent, run:"
-        echo "  deepagents --agent ctrader_agent"
+        echo "A dcode run finds the skills, since they are installed for the default agent."
         echo ""
     fi
     echo "For usage and configuration, see:"
-    echo "  https://docs.langchain.com/deepagents-cli"
+    echo "  https://docs.langchain.com/oss/deepagents/code/overview"
 else
     echo "For usage and configuration, see:"
     echo "  https://code.claude.com/docs/en/overview"

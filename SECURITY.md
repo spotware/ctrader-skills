@@ -1,27 +1,24 @@
-# Security Policy
+# Security policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability in cTrader Skills, please **do not** open a public GitHub issue. Instead, report it privately via one of the following channels:
+If you discover a security vulnerability in the cTrader skills, do not open a public GitHub issue. Report it privately through one of these channels:
 
 - **GitHub Security Advisories** (preferred): [Report a vulnerability](<https://github.com/spotware/ctrader-skills/security/advisories/new>).
 - **Email**: send the report to `support@ctrader.com` with the subject line `Security report: ctrader-skills`.
 
-We will acknowledge receipt within 5 business days and provide an estimated remediation timeline after triage.
+We acknowledge receipt within 5 business days and give an estimated remediation timeline after triage.
 
 ## Scope
 
-This security policy covers:
+This policy covers the contents of the [`spotware/ctrader-skills`](<https://github.com/spotware/ctrader-skills>) repository: the skills with their references and scripts, the Claude Code plugin and marketplace manifests, and the install script.
 
-- The contents of the [`spotware/ctrader-skills`](<https://github.com/spotware/ctrader-skills>) repository: the skills with their references, scripts and assets, the plugin manifests, and the install script.
-- The published Claude Code plugin and the `npx skills` package distribution that ship from this repository.
+Vulnerabilities in cTrader platform components, including the cTrader MCP servers, the cTrader CLI, cTrader Desktop, the cTrader mobile apps and the cTrader web platform, are out of scope for this repository. Report those through the official cTrader support channel at [spotware.com](<https://www.spotware.com/>).
 
-Vulnerabilities in **cTrader platform components**, including the cTrader CLI, the Local HTTP MCP server, the Remote HTTP MCP server, the REST proxy, cTrader Desktop, the cTrader iOS and Android apps, and the cTrader.com web platform, are out of scope for this repository. Report those through the official cTrader support channel at [spotware.com](<https://www.spotware.com/>).
+## Supported versions
 
-## Supported Versions
+Only the latest release, the content of the `main` branch, receives security updates. [CHANGELOG.md](CHANGELOG.md) lists the releases.
 
-Only the **latest release** of `ctrader-skills`, the content of the `main` branch, receives security updates. [CHANGELOG.md](CHANGELOG.md) lists the releases.
+## Disclosure policy
 
-## Disclosure Policy
-
-We follow coordinated disclosure. After a fix is available, we will work with the reporter to determine an appropriate public disclosure timeline, typically 30 to 90 days. We credit reporters in the changelog unless they prefer anonymity.
+We follow coordinated disclosure. Once a fix is available, we agree on a public disclosure timeline with the reporter, typically 30 to 90 days. We credit reporters in the changelog unless they prefer to stay anonymous.

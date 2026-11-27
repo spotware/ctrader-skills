@@ -20,7 +20,7 @@ On a data profile, propose the trade, or a change to a position or a pending ord
 | `get_version` | both | Service name, version and build time |
 | `get_balance` | both | Balance, equity and free margin in minor units, with `moneyDigits` and `depositAssetId` |
 | `get_assets` | both | Assets (currencies) and their ids |
-| `get_symbols` | both | Symbols with their `symbolId`, `symbolName`, `digits`, `pipPosition`, `baseAssetId` and `quoteAssetId` |
+| `get_symbols` | both | Symbols with their `symbolId`, `symbolName`, `enabled`, `digits`, `pipPosition`, `baseAssetId` and `quoteAssetId` |
 | `get_spot_prices` | both | Current bid and ask of the symbols requested by id or name |
 | `get_trendbars` | both | Price bars of one symbol and `period` |
 | `get_positions` | both | Every open position and pending order |
@@ -45,15 +45,21 @@ Order placement, protections, closing and links are described in `remote-trading
 1. Confirm from the client's tool list that the server in use is this one, as `SKILL.md` describes.
 2. Call `get_session_status`: read `environment` (demo or live), `profile` and `authMode`; the account number is `login`. Handle `UNAUTHORIZED` as the first section says.
 3. Call `get_balance`, scale its money as the money section says, and resolve `depositAssetId` to a currency name with `get_assets`, passing it in `assetIds`.
-4. Call `get_symbols` only when the task needs `digits`, `pipPosition`, the `symbolId` map or a symbol's `baseAssetId` and `quoteAssetId`.
+4. Call `get_symbols` only when the task needs `digits`, `pipPosition`, the `symbolId` map, a symbol's `baseAssetId` and `quoteAssetId`, the list of symbols the user can trade, or a symbol's `enabled` before a new order or order link in it.
 
 ## Symbols and lot size
 
 `create_order`, `create_order_link`, `get_spot_prices` and `get_trendbars` take `symbolName` in place of the numeric `symbolId`, exactly one of the two (`get_spot_prices` takes ids, names or both), and match it exactly, case included; an unknown name fails the whole call with `INVALID_REQUEST`, and the refusal lists the case-insensitive near-matches with their ids. Take symbol names and `digits` from `get_symbols` of the connected server.
 
-Call `get_symbols` only for `digits`, `pipPosition`, the `symbolId` map or the asset ids `baseAssetId` and `quoteAssetId`, and pass `names` or `symbolIds` for the symbols the task needs: the full list is 800+ symbols. The answer can hold every symbol of the account also when `names` or `symbolIds` are passed: take the rows of the task by `symbolId` or `symbolName`, never by their position in the answer, read no number of matches from the number of rows, and keep the rows for the session. Matching the rows of a quote read for several symbols needs that map, so such a read calls `get_symbols` once per session. Call `get_assets` with `assetIds` or `names` the same way: its answer can hold every asset of the server as well, so take its rows by `assetId` or `name`, never by their position, keep them for the session, and read both again in a new session.
+Call `get_symbols` only for `digits`, `pipPosition`, the `symbolId` map, the asset ids `baseAssetId` and `quoteAssetId`, the list of symbols the user can trade, or the `enabled` of a symbol before a new order or order link in it, and pass `names` or `symbolIds` for the symbols the task needs, or `enabledOnly` for the list: the full list is 800+ symbols. The answer can hold every symbol of the account also when `names` or `symbolIds` are passed: take the rows of the task by `symbolId` or `symbolName`, never by their position in the answer, read no number of matches from the number of rows, and keep the rows for the session. Matching the rows of a quote read for several symbols needs that map, so such a read calls `get_symbols` once per session. Call `get_assets` with `assetIds` or `names` the same way: its answer can hold every asset of the server as well, so take its rows by `assetId` or `name`, never by their position, keep them for the session, and read both again in a new session.
+
+A `get_symbols` row carries `enabled`, and a row whose `enabled` is false is a symbol not enabled for trading, as the description of `enabledOnly` puts it: "Only symbols enabled for trading." The answer can hold rows whose `enabled` is false also when `enabledOnly` is passed: when the user asks for the symbols they can trade, list the rows whose `enabled` is true, taken by the key. When the user asks for a new order in a symbol whose row has `enabled` false, through `create_order` or `create_order_link`, say that the symbol is not enabled for trading and send neither call for it. A request to close, cancel or change a position or a pending order the account already holds in such a symbol is handled as for any other symbol, and a quote of such a symbol can still be read and reported.
 
 A symbol's quote currency is the `name` of the `get_assets` row whose `assetId` equals the symbol's `quoteAssetId`, and its base currency the `name` of the row whose `assetId` equals its `baseAssetId`. Take both from there for every symbol, also for one whose name does not spell its currencies.
+
+When a symbol's `quoteAssetId` is the `depositAssetId` of `get_balance`, a figure in its quote currency is already in the account currency: nothing is converted, and `conversion_rate.py` is not run. To convert a figure from any other quote currency to the account currency, the `get_assets` name of `depositAssetId`, `conversion_rate.py compute-chain` needs in `--quotes` the quote of a symbol that links the two currencies: a symbol whose `baseAssetId` and `quoteAssetId` are the two currencies' asset ids in either order, or two such symbols through a third currency such as USD. Find it among the `get_symbols` rows kept for the session by its `baseAssetId` and `quoteAssetId`, read it with `get_spot_prices`, turn its `bid` and `ask` into display prices (value / 100000), and pass them as an object under a key made of the `get_assets` names of its base and its quote currency, base first (`EURUSD` for a base of EUR and a quote of USD): the script reads a quote's two currencies from its key. When the script exits with code 4, no chain links the two currencies among the quotes passed: tell the user that the conversion cannot be given, and present the figure in the quote currency, named as such.
+
+A symbol's pip size is 10 to the power of minus its `pipPosition`: `pipPosition` 4 gives a pip size of 0.0001, 2 gives 0.01 and 0 gives 1. It is the `--pip-size` the scripts take on this server. `pipPosition` and `digits` play no part in the scale of quotes, which `SKILL.md` defines.
 
 This server serves no lot size, volume step or minimum volume and has no symbol-details tool; a `get_symbols` row carries `digits` and `pipPosition` but no volume field. Its served text gives the lot size by instrument class: forex 100000, metals 100 (XAUUSD), indices and crypto 1, as typical values; the broker's value for the symbol decides. Say which lot size a size rests on, and for a symbol outside these classes ask the user for the lot size before sizing.
 
@@ -61,7 +67,7 @@ When the lot size of such a symbol stays in doubt, offer the user a test order o
 
 ## Volume
 
-Volume is in the unit `SKILL.md` defines. Convert a size in lots with `units_encoding.py lots-to-cents --lots <lots> --lot-size <lot-size>`, the lot size taken as the section above says.
+Volume is in the unit `SKILL.md` defines. Convert a size in lots with `units_encoding.py lots-to-cents --lots <lots> --lot-size <lot-size>`, the lot size taken as the section above says. Turn a `volume` that an answer gives into units of the base asset, `volume` / 100, and into lots with `units_encoding.py units-to-lots --units <units> --lot-size <lot-size>`, the lot size taken as the section above says, and name the lot size the lots rest on.
 
 A refused volume's message states volumes in base units: multiply them by 100 for the request unit. This server serves no step or minimum, and this skill states no step rule: a volume the server refuses goes to the user, as the errors section says.
 
@@ -93,6 +99,8 @@ Each `get_spot_prices` row carries `symbolId`, `bid`, `ask`, `high`, `low`, `ses
 
 `period` takes the values of its schema enum; when the user asks for a period the enum lacks, offer the nearest valid one.
 
+Each bar carries `timestamp`, `open`, `high`, `low`, `close` and `volume`; `timestamp` is the time the bar opens. A `D_1` bar opens at the start of the symbol's trading day, which can fall on the evening of the previous calendar date in UTC, for example at 21:00Z or 22:00Z, and the hour can differ between the bars of one answer; a `W_1` bar and an `MN_1` bar can be stamped on such an evening too, and an `MN_1` bar also on an evening when no trading day starts. Take the boundary from the `timestamp` of the bars themselves, and name such a bar by the period it opens, never by the UTC date of its `timestamp`. Name a daily bar by the trading day it opens: a bar stamped in the evening holds the next calendar date. Name a `W_1` bar stamped on a Sunday evening by the week that starts the next day, and an `MN_1` bar stamped on the evening of the last day of a month by the month that starts the next day: the bar stamped on the evening of 31 October is the November bar. A window returns each bar whose period overlaps it, so a window of one UTC calendar day can return two `D_1` bars, of which the bar of that date is the one stamped the evening before.
+
 `get_trendbars` returns at most `count` bars counted back from `toTimestamp` (default and cap in its schema) and no `hasMore`; a window holding more bars comes back with the newest ones. `count` trims the window and never widens it. Without `fromTimestamp` the window is the span before `toTimestamp` that the description of `fromTimestamp` gives as its default, so a call for 100 `D_1` bars brings only the daily bars of that span. Fewer bars than `count` means the window ended, not the history: read older bars with further calls. Over a long range, request `count` at its cap, move `toTimestamp` back to the oldest bar returned (the bound is inclusive), drop the repeated bar, and repeat until the range is covered or a call brings no new bar, as when the range begins in a market closure. Keep each window within the span its schema allows, splitting a longer range into such windows; a wider window is refused with a message that names the limit.
 
 ## Positions and orders
@@ -105,7 +113,7 @@ A position whose `positionStatus` is `POSITION_STATUS_CLOSED`, with no `openTime
 
 A position's full commission is `commission + closedCommission` and its full swap `swap + closedSwap`.
 
-Positions carry no `unrealizedPnl`, and no `grossProfit` or `netProfit` before a first close. Estimate the floating profit from the current quote (value / 100000; the bid for a buy, the ask for a sell), `entryPrice` and the volume in base units (volume / 100), convert the result from the quote currency of the symbol, taken from `get_assets` as the symbols section says, to the account currency with `conversion_rate.py compute-chain --from-asset <quote-currency> --to-asset <account-currency> --quotes <quotes>` (`trading-math.md`), and call it an estimate. `grossProfit`, `netProfit`, `closedCommission` and `closedSwap` are realized totals: they appear once any part of the position is closed, so an open position after a partial close carries them too. Report them as the realized result of the closed part, apart from the estimate.
+Positions carry no `unrealizedPnl`, and no `grossProfit` or `netProfit` before a first close. Estimate the floating profit from the current quote (value / 100000; the bid for a buy, the ask for a sell), `entryPrice` and the volume in base units (volume / 100), and call it an estimate. The result is in the quote currency of the symbol, taken from `get_assets` as the symbols section says: when that is the account currency, it needs no conversion; otherwise convert it to the account currency with `conversion_rate.py compute-chain --from-asset <quote-currency> --to-asset <account-currency> --quotes <quotes>` (`trading-math.md`), with the quotes the symbols section names. `grossProfit`, `netProfit`, `closedCommission` and `closedSwap` are realized totals: they appear once any part of the position is closed, so an open position after a partial close carries them too. Report them as the realized result of the closed part, apart from the estimate.
 
 ## Deals and order history
 
@@ -146,9 +154,11 @@ Every failed call returns `{"error":{"code":"<code>","message":"<text>","httpSta
 ## Recipe: book snapshot
 
 1. Call `get_positions`: it returns every open position and pending order.
-2. For each position, call `get_position_details` and read its protections from `stopLoss` and `takeProfit` and its Advanced Take Profit levels from `advancedTakeProfit` of the `position` object.
-3. Report each position by its `positionStatus`: never report a created, failed or never-opened position as open or as a closed trade.
-4. Scale money with the position's own `moneyDigits`, give the floating profit only as an estimate, and give the realized totals of a partly closed position apart from it.
+2. When step 1 returned no position and no order, call no `get_symbols` and report that the account holds no position and no pending order. Otherwise call `get_symbols` with `symbolIds` for the `symbolId` of every row, unless the session keeps those rows, and name each position and pending order by the `symbolName` of its `symbolId`: the rows carry `symbolId` and no name.
+3. For each position, call `get_position_details` and read its protections from `stopLoss` and `takeProfit` and its Advanced Take Profit levels from `advancedTakeProfit` of the `position` object.
+4. Report each position by its `positionStatus`, with its size from `volume` in units and in lots as the volume section says: never report a created, failed or never-opened position as open or as a closed trade.
+5. Scale money with the position's own `moneyDigits`, give the floating profit only as an estimate, and give the realized totals of a partly closed position apart from it.
+6. Report each pending order from its row of step 1 by its symbol, `tradeSide`, `orderType`, its size from `volume` in units and in lots, as the volume section says, never as the raw `volume` alone, `limitPrice` or `stopPrice`, its protections, its Advanced Take Profit levels from `advancedTakeProfit`, which `get_positions` and `get_pending_orders` return for an order as stored, and its expiry from `expirationTimestamp` and `timeInForce`, shown in the user's time zone. Read the protections a row carries: `stopLoss` and `takeProfit` as prices, and `relativeStopLoss` and `relativeTakeProfit`, when the row carries them, as distances from the fill price in the unit `SKILL.md` defines (value / 100000). For a row with none of the four, say that the read shows no stop loss and no take profit and that an order placed with distances can read back without them; never tell the user that the order has none. Give each level's price from `takeProfit`, or, for an order whose levels were sent as distances, its `relativeTakeProfit` as a distance from the fill price (value / 100000), and its `volume` in units and in lots. For a STOP_LIMIT order, say that its limit cannot be read back, since no answer or read returns `slippageInPoints` (`remote-trading.md`).
 
 ## Recipe: history and bars over a long window
 
@@ -162,15 +172,14 @@ Every failed call returns `{"error":{"code":"<code>","message":"<text>","httpSta
 
 1. Call `get_session_status` and report the environment (demo or live) and the profile.
 2. Call `get_balance`, scale the balance by `moneyDigits`, and name the currency through `get_assets`.
-3. Call `get_spot_prices` by `symbolName`, match rows by `symbolId`, divide each value of a row without `error` by 100000, and report a requested symbol without a row, or with `error`, as without a price.
+3. Call `get_symbols` with `names` for the symbols of the task, unless the session keeps their rows, for the `symbolId` map, `digits` and `enabled`, each symbol's row taken by its `symbolName`; then call `get_spot_prices` by `symbolName`, match its rows through that map by `symbolId`, divide each value of a row without `error` by 100000, and report a requested symbol without a row, or with `error`, as without a price, and a symbol whose row has `enabled` false as not enabled for trading.
 4. Call `get_trendbars` with `count` for the recent bars. Fewer bars than `count` means the default window ended; older bars take further calls, as Trend bars describes.
 5. Call `get_positions` for the open positions and orders, and read each position's levels from `get_position_details`.
-6. Call `get_symbols` for `digits` only when a price will be sent.
-7. Say that the snapshot holds no commission or swap rate, because no tool serves one.
+6. Say that the snapshot holds no commission or swap rate, because no tool serves one.
 
 ## Recipe: cost comparison by spread
 
-1. Call `get_spot_prices` once for the symbols compared; match rows by `symbolId`, and name a symbol without a row, or with `error`, as without a price.
-2. Take each spread as (ask - bid) / 100000.
-3. Take the spread cost of a size as spread x volume / 100, in the quote currency of the symbol, the `get_assets` name of its `quoteAssetId` as the symbols section says, and convert it to the account currency with `conversion_rate.py compute-chain --from-asset <quote-currency> --to-asset <account-currency> --quotes <quotes>` (`trading-math.md`).
+1. Call `get_symbols` with `names` for the symbols compared, unless the session keeps their rows, for the `symbolId` map and each symbol's `quoteAssetId`, each symbol's row taken by its `symbolName`; then call `get_spot_prices` once for those symbols, match its rows through that map by `symbolId`, and name a symbol without a row, or with `error`, as without a price.
+2. Take each spread as (ask - bid) / 100000, the spread at the row's `timestamp`, and say beside the figures that the spreads are those of the moment of the read, never the symbols' usual costs.
+3. Take the spread cost of a size as spread x volume / 100, in the quote currency of the symbol, the `get_assets` name of its `quoteAssetId` as the symbols section says. When that is the account currency, the cost needs no conversion; otherwise convert it to the account currency with `conversion_rate.py compute-chain --from-asset <quote-currency> --to-asset <account-currency> --quotes <quotes>` (`trading-math.md`). Read the linking quote the symbols section names in the call of step 1, or in a call of its own, and pass it in `--quotes`; when the script exits with code 4, give the cost in the quote currency, named as such.
 4. Leave commission and swap out of the comparison and say so: no tool serves their rates.

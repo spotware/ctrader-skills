@@ -71,7 +71,7 @@ Every tool the Local server serves, one line each. The last column names the sec
 | `addChartIndicator` | Adds an indicator to the active chart | [local-app.md](local-app.md) |
 | `removeChartIndicator` | Removes an indicator from the active chart | [local-app.md](local-app.md) |
 | `update_indicator_parameters` | Changes the parameters of an indicator on the active chart | [local-app.md](local-app.md) |
-| `getIndicatorValues` | Most recent values of an indicator output | [local-app.md](local-app.md) |
+| `getIndicatorValues` | Last values of an indicator output, oldest first | [local-app.md](local-app.md) |
 | `add_chart_object` | Adds a drawing to the active chart | [local-app.md](local-app.md) |
 | `get_chart_objects` | Lists the drawings on the active chart | [local-app.md](local-app.md) |
 | `update_chart_object` | Changes a drawing on the active chart | [local-app.md](local-app.md) |
@@ -131,6 +131,8 @@ The server acts on the account the app is logged in to, and no tool switches it.
 
 `get_symbols` without `filter` returns every symbol, a large answer; pass `filter`, which matches name and description in any case. The other tools take the exact name as listed, case included; names can contain spaces.
 
+Neither a `get_symbols` row nor `get_symbol_details` names a symbol's quote currency. `conversion_rate.py` reads a symbol name as six letters, the base currency then the quote currency, after dropping every character that is not a letter, so for a symbol whose name reads that way as two currency codes, such as EURUSD or EUR/USD, the quote currency is the last three letters. For every other symbol, ask the user which currency it is quoted in before sizing an order or converting a cost of it. The account currency is `depositAsset` of `get_balance`; when it is the quote currency, the conversion rate is 1, and otherwise the rate comes from `conversion_rate.py compute-chain` with the linking quote that [Money handling](#money-handling) names, read with `get_spot_prices`, whose prices are display prices on this server.
+
 ## Volume handling
 
 Every Local tool that takes `volume` requires `volumeType`: `place_market_order`, `place_limit_order`, `place_stop_order`, `place_stop_limit_order`, `close_position_partial`, `calculate_margin`, and `amend_order` whenever it changes the volume. Send the unit the user gave; when the user gave a number without saying lots or units, ask. With `lots`, the size in units is `volume` × `lotSize`, with `lotSize` from `get_symbol_details`.
@@ -147,6 +149,8 @@ Every Local tool that takes `volume` requires `volumeType`: `place_market_order`
 
 Balance, equity, margin, `grossProfit`, `netProfit`, `commission`, `swap` and the `calculate_margin` figures are in the account currency, named by `depositAsset` on `get_balance`; report them as they are. Convert only values the agent computes from prices, such as a pip value.
 
+When a symbol's quote currency is the account currency, named by `depositAsset`, a value computed in the quote currency is already in the account currency: nothing is converted, and `conversion_rate.py` is not run. To convert such a value from any other quote currency to the account currency, `conversion_rate.py compute-chain` needs in `--quotes` the quote of a symbol that links the two currencies: one pair of the two in either order, or two pairs through a third currency such as USD. Find it with `get_symbols` and its `filter`, read its `bid` and `ask` with `get_spot_prices`, and pass them as an object under a key made of the names of its base and its quote currency, base first (`EURUSD` for EUR against USD): the script reads a quote's two currencies from its key. When the script exits with code 4, no chain links the two currencies among the quotes passed: tell the user that the conversion cannot be given, and present the figure in the quote currency, named as such.
+
 Read the used margin from `margin` of `get_balance`; never total the `calculate_margin` figures of the open positions for it.
 
 ## Time and sessions
@@ -159,9 +163,13 @@ Send every time as ISO 8601 UTC with `Z`, converting a time the user gives in an
 
 `get_spot_prices` takes one `symbolName` and answers `symbolName`, `bid`, `ask`, `spread` in pips, `high`, `low` and `open`, with no timestamp. The answer names no period for `high`, `low` and `open`, so do not present them as the range or the open of a day: take the range of a period from the bars of `get_trendbars`. For a symbol without a live quote it answers a tool error, and `get_symbol_details` shows `bid` and `ask` as `null`. Then, with the user's agreement, open a chart of the symbol with `open_chart`, read the quote again, and close that chart afterwards; if there is still no quote, tell the user the price is not available.
 
+A quote can show `bid` equal to `ask` and `spread` 0.0 while the symbol's market is closed. Before presenting `spread` as a cost, read `get_symbol_sessions` and `get_server_time`: when the market is not always open and the server time, converted to the symbol's time zone, falls outside its sessions, say beside the quote that the market is closed, and do not present the spread as a current trading cost. In an open market the spread changes from read to read and can be 0.0, with `bid` equal to `ask`: present it as the spread at the moment of the read, never as the symbol's usual cost.
+
 ## Trendbars
 
 `get_trendbars` takes `symbolName`, `timeframe`, `from` and `to` (ISO 8601 UTC with `Z`) and an optional `limit`; take the timeframe values from the description of `timeframe` and the default and cap of `limit` from the description of `limit`, since the schema states them only as text, with no list, default or maximum key. Send `from` earlier than `to`. The answer includes the bars that open at `from` and at `to`. When the window holds more bars than `limit`, the answer sets `truncated` to `true` and holds the newest bars of the window; the older bars are not in it. The bar still forming is not among the bars returned, also when `to` is the current time: for a range that reaches the present, cover the time since the last bar returned with the bars of a shorter timeframe, and add the current quote of `get_spot_prices`.
+
+Each bar carries `timestamp`, `open`, `high`, `low`, `close` and `volume`; `timestamp` is the time the bar opens. A `d1` bar opens at the start of the symbol's trading day, which can fall on the evening of the previous calendar date in UTC, for example at 21:00Z or 22:00Z, and the hour can differ between the bars of one answer. Take the day boundary from the `timestamp` of the `d1` bars, and name a daily bar by the trading day it opens: a bar stamped in the evening holds the next calendar date. Name a weekly bar stamped on a Sunday evening by the week that starts the next day, and a monthly bar stamped on the evening of the last day of a month by the month that starts the next day: the bar stamped on the evening of 30 September is the October bar. For the bar of a day, send a `from` at or before that bar's `timestamp`: a `from` later than the `timestamp`, even by a second, leaves the bar out, so a `from` at 00:00Z of the date leaves out the daily bar that opened the evening before. The session start that `get_symbol_sessions` gives can lie seconds after the daily bar's `timestamp`, as a session that starts at 17:00:05 while the daily bar is stamped 17:00:00 in the same zone, so do not send the session start as the `from` of a daily bar.
 
 ## Positions and pending orders
 
@@ -189,7 +197,7 @@ Read the container and the keys from each answer; where an answer differs from t
 
 ## Account statistics
 
-`get_account_statistics` answers `available`; when it is `true`, the answer gives net profit, trade counts, win and loss shares, profit factor, average trade, and the largest winning and losing trade (key names in the answer). It carries no peak equity and no drawdown: for those, keep the agent's own `get_balance` equity readings over the session. When `available` is `false`, there are no figures; say so. Before calling the figures lifetime results, compare `totalTrades` with the number of `get_order_history` items; when they match, present the figures as covering the history the app has loaded.
+`get_account_statistics` answers `available`; when it is `true`, the answer gives net profit, trade counts, win and loss shares, profit factor, average trade, and the largest winning and losing trade (key names in the answer). It carries no peak equity and no drawdown: for those, keep the agent's own `get_balance` equity readings over the session. When `available` is `false`, there are no figures; say so. No answer states the period the figures cover or what `totalTrades` counts, so do not call them lifetime results. Compare `totalTrades` with the number of `get_order_history` items: when they match, present the figures as covering the history the app has loaded; when they differ, present them as the account statistics the app reports, without tying them to the loaded history.
 
 ## Errors
 
@@ -199,7 +207,7 @@ A refused Local call answers a tool error, and nothing is placed or changed. The
 
 1. Read `get_positions` and `get_pending_orders`, both without arguments.
 2. For each position, report the symbol, `tradeSide`, the size from `volumeInUnits` with `volumeInLots`, `entryPrice`, `currentPrice`, the stop loss and take profit as prices and in pips (a leg that reads `null` is not set), and `grossProfit` and `netProfit` as returned, in the account currency.
-3. For each pending order, report the symbol, `tradeSide`, `orderType`, the size, `targetPrice`, the protections and `expiration`; for a stop-limit order, report its limit as [Positions and pending orders](#positions-and-pending-orders) describes.
+3. For each pending order, report the symbol, `tradeSide`, `orderType`, the size from `volumeInUnits` with `volumeInLots`, `targetPrice`, the protections and `expiration`; for a stop-limit order, report its limit as [Positions and pending orders](#positions-and-pending-orders) describes.
 4. Read `get_balance` and report balance, equity, margin and free margin as returned.
 
 ## Recipe: history and bars over a long window
@@ -217,7 +225,7 @@ For closed trades, read `get_order_history` once and keep the items whose `close
 
 1. Read `get_accounts_list` for `isLive`, and `get_balance` for balance, equity, margin and the currency, reported as returned.
 2. Read `get_symbol_details` for `digits`, `pipSize`, `lotSize` and the volume limits.
-3. Read `get_spot_prices` for bid, ask and `spread` in pips; when it answers an error, follow the steps of [Quotes](#quotes).
+3. Read `get_spot_prices` for bid, ask and `spread` in pips; when it answers an error, follow the steps of [Quotes](#quotes). Check with `get_symbol_sessions` and `get_server_time` whether the market is open, as [Quotes](#quotes) describes; when it is closed, say so beside the quote and do not present the spread as a current trading cost; when it is open, present the spread, 0.0 included, as the spread at the moment of the read.
 4. Read recent bars with `get_trendbars` by `timeframe`, `from`, `to` and `limit`.
 5. Read `get_positions` and `get_pending_orders` with their protection keys.
 6. When a size is planned, get its margin from `calculate_margin` and compare it with the free margin of `get_balance`.
@@ -225,7 +233,7 @@ For closed trades, read `get_order_history` once and keep the items whose `close
 
 ## Recipe: cost comparison by spread
 
-1. Read `get_spot_prices` per symbol for `spread` in pips, and `get_symbol_details` for `pipSize`.
-2. The spread cost of a size is spread × `pipSize` × units, in the quote currency. Convert it to the account currency as a value computed from prices, as [trading-math.md](trading-math.md) describes.
+1. Read `get_spot_prices` per symbol for `spread` in pips, `get_symbol_details` for `pipSize`, and `get_symbol_sessions` with `get_server_time` for whether the market is open, as [Quotes](#quotes) describes; compare each symbol whose market is open with the spread its quote showed, 0.0 included.
+2. The spread cost of a size is spread × `pipSize` × units, in the symbol's quote currency, taken as [Symbols](#symbols) describes. Convert it to the account currency as [Money handling](#money-handling) describes.
 3. Leave commission and swap out, because no tool serves their rates and `get_symbol_details` carries neither; say so beside the figures.
-4. Report a symbol without a live quote as not compared.
+4. Report a symbol without a live quote as without a price and a symbol whose market is closed as closed, both as not compared. Say beside the figures that the spreads are those of the moment of the read, never the symbols' usual costs.

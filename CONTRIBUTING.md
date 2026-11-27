@@ -1,16 +1,16 @@
-# Contributing to cTrader Skills
+# Contributing to the cTrader skills
 
-Thanks for your interest in improving cTrader Skills. This guide explains how Spotware publishes this repository, how to report an issue, and how to propose a change. By participating in this project you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
+Thanks for your interest in improving the cTrader skills for AI agents. This guide explains how Spotware publishes this repository, how to report an issue, and how to propose a change. By participating in this project you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## How Spotware Publishes This Repository
+## How Spotware publishes this repository
 
-Spotware develops the skills outside this repository and publishes each release here. Each release is one commit on `main`, tagged `v<version>`, and `main` changes only at a release. [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
+Spotware develops the skills outside this repository and publishes each release here. Each release is one commit on `main`, tagged `v<version>`, and `main` changes only at a release, so `main` always holds the latest release. [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
 
 `npx skills`, the Claude Code marketplace and `install.sh` all read `main`, so a new installation always receives the latest release.
 
-## Repository Layout
+## Repository layout
 
-Each skill lives in its own folder under `skills/` and follows the [Agent Skills specification](<https://skills.sh>):
+Each skill lives in its own folder under `skills/` and follows the [Agent Skills specification](<https://agentskills.io/specification>):
 
 ```text
 skills/<skill-name>/
@@ -20,18 +20,18 @@ skills/<skill-name>/
   scripts/*.py       # helper scripts, each with a --self-test flag
 ```
 
-Skill installers copy only the skill folder, so every skill carries its own copy of the license. The `.claude-plugin/` folder holds the Claude Code plugin and marketplace manifests, and `install.sh` installs the skills for Claude Code or Deep Agents CLI.
+Skill installers copy only the skill folder, so every skill carries its own copy of the license. The `.claude-plugin/` folder holds the Claude Code plugin and marketplace manifests, and `install.sh` installs the skills for Claude Code or Deep Agents Code.
 
-## Reporting Issues
+## Reporting issues
 
 Use one of the [issue templates](.github/ISSUE_TEMPLATE/) when filing an issue:
 
 - **Bug Report**: unexpected behavior of a skill or a bundled script.
 - **Feature Request**: a new skill, reference, or improvement.
 - **Documentation Issue**: inaccurate, missing, unclear, or outdated documentation.
-- **Question**: how to use the skills. Questions about the **cTrader platform** itself (charts, accounts, broker behavior) belong in the [cTrader Help Centre](<https://help.ctrader.com/>).
+- **Question**: how to install or use the skills. Questions about the **cTrader platform** itself (charts, accounts, broker behavior) or about your cTrader account belong in the [cTrader Help Centre](<https://help.ctrader.com/>).
 
-## Proposing a Change
+## Proposing a change
 
 Open an issue that describes the change and the reason for it. For a change to a skill or a script, quote the passage it concerns or paste the text you propose.
 

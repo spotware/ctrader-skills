@@ -95,7 +95,7 @@ body:
         - Codex
         - Cline
         - OpenCode
-        - Deep Agents CLI
+        - Deep Agents Code
         - Other
     validations:
       required: true

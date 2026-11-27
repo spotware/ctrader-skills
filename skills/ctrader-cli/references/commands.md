@@ -66,9 +66,9 @@ Shell-routed. Call it as `candles --symbol=<name> --period=<token> --account=<ac
 
 The count form returns `symbolName`, `timeframe`, `requested`, `returned`, `available` and `bars`; each bar carries `timestamp`, `open`, `high`, `low`, `close` and `volume`. `available` reports how many bars exist for that symbol and period. The count form returns at most 1000 bars per call: `--count=1001` answers with `requested` 1000 and no warning. For more history, page through repeated `--from` and `--to` windows; no cursor or offset option exists.
 
-The range form returns `symbolName`, `timeframe`, `from`, `to`, `returned` and `bars`, without `requested` and `available`. `--from` and `--to` take `yyyy-MM-dd` or `dd/MM/yyyy`, and a date without a time is read as midnight UTC. Leaving out `--to` ends the window at the moment of the call; the bar still open is left out, so only closed bars come back. The `to` bound is inclusive. A reversed range ends with exit 1 and `Error: Invalid parameters: 'from' must be before 'to'.` A window with no trading, such as a weekend, returns exit 0 with `"returned": 0` and `"bars": []`: that, not an error, is how an empty window differs from a malformed request.
+The range form returns `symbolName`, `timeframe`, `from`, `to`, `returned` and `bars`, without `requested` and `available`. `--from` and `--to` take `yyyy-MM-dd` or `dd/MM/yyyy`, and a date without a time is read as midnight UTC. Leaving out `--to` ends the window at the moment of the call; the bar still open is left out, so only closed bars come back. A date-only `--to` is the start of that day, 00:00 UTC, and the window ends there: for an intraday period the bars of that day are not in the answer, so to include a day pass the next day as `--to`, as `--from=2026-11-01 --to=2026-11-11` for the hourly bars of 1 to 10 November. A reversed range ends with exit 1 and `Error: Invalid parameters: 'from' must be before 'to'.` A window with no trading, such as a weekend, returns exit 0 with `"returned": 0` and `"bars": []`: that, not an error, is how an empty window differs from a malformed request.
 
-Bars come oldest first in both forms; never assume newest first. Daily bar timestamps follow the symbol's daily session boundary, not midnight UTC: read the boundary from `sessions` for the symbol before you derive a calendar day from a timestamp.
+Bars come oldest first in both forms; never assume newest first. A bar's `timestamp` is the time it opens. A daily bar opens at the start of the symbol's trading day, which follows the symbol's daily session boundary, not midnight UTC, and can fall on the evening of the previous calendar date in UTC, for example at 21:00Z or 22:00Z. Read the boundary from `sessions` for the symbol, and name a daily bar by the trading day it opens: a bar stamped in the evening holds the next calendar date. Name a weekly bar stamped on a Sunday evening by the week that starts the next day, and a monthly bar stamped on the evening of the last day of a month by the month that starts the next day: the bar stamped on the evening of 30 September is the October bar. With such a boundary, a date-only window `--from=<A> --to=<B>` holds the daily bars stamped from A up to the day before B, which are the trading days after A up to B: for the trading days X to Y, pass the day before X as `--from` and Y as `--to`, as `--from=2026-11-01 --to=2026-11-06` for the trading days 2 to 6 November. Then check the first and the last `timestamp` of the answer against the days asked for.
 
 ## orders
 
@@ -78,7 +78,7 @@ The empty result is `{"orders": []}`, exit 0. A populated entry can show `target
 
 ## positions
 
-Shell-routed, called like `orders`: `positions --account=<account> -e -q`. The empty result is `{"positions": []}`, exit 0, the normal case on an account with no open trades. A populated entry can show `currentPrice`, `pips`, `grossProfit` and `netProfit`, and the two profit fields can read null on an open position; read the field names from the result.
+Shell-routed, called like `orders`: `positions --account=<account> -e -q`. The empty result is `{"positions": []}`, exit 0, the normal case on an account with no open trades. A populated entry can show `currentPrice`, `pips`, `grossProfit` and `netProfit`, and each of the four can read null on an open position: report a null field as not available from the CLI, and put no figure derived from other values in its place. Read the field names from the result.
 
 ## order
 
@@ -86,7 +86,7 @@ Shell-routed. Call it as `order --order=<order-id> --account=<account> -e -q`; r
 
 ## position
 
-Shell-routed. Call it as `position --position=<position-id> --account=<account> -e -q`. The result is one entry of `positions`, without the array. An id that names no open position ends with exit 1 and a plain-text line, `Position #<position-id> not found.` The lookup covers open positions only.
+Shell-routed. Call it as `position --position=<position-id> --account=<account> -e -q`. The result is one entry of `positions`, without the array, and its `currentPrice`, `pips`, `grossProfit` and `netProfit` can read null as there. An id that names no open position ends with exit 1 and a plain-text line, `Position #<position-id> not found.` The lookup covers open positions only.
 
 ## exposure
 
@@ -98,6 +98,8 @@ Shell-routed. Call it as `orders-history --count=<n> --account=<account> -e -q`,
 
 `deals` returns at most 200 deals and `orders-history` at most 500 orders per call. Without `--from` or `--to` they cover the last 30 days. `--count` is 50 by default for `deals` and 100 for `orders-history`, and it is ignored when `--from` or `--to` is given. The result reports what was applied: `requested`, `returned`, `available` (when more exist) and `lookbackDays` in the count form of `orders-history`, `count` in `deals`; read them instead of assuming the count you asked for.
 
+In the range form, `--from` and `--to` take a date, a calendar day in UTC, and a date-only `--to` includes that whole day, up to 23:59:59 UTC, although the `to` of the answer can echo it as `<date>T00:00:00.000Z`: for 1 to 10 November pass `--from=2026-11-01 --to=2026-11-10`, without adding the next day. In the range form, check whether the result was cut: in `orders-history` an `available` bigger than `returned` means that the range holds more orders, and in `deals` a `count` of exactly 200 means that it can hold more deals. Then split the range into shorter ranges that follow each other, each `--from` the day after the previous `--to`, run the command for each, and give totals only from the complete set.
+
 The count form returns `requested`, `returned`, `lookbackDays` and `orders`, and adds `available` when more orders exist in the window than it returned; for the range form, read the field names from the result. Each order can carry `id`, `symbolName`, `tradeSide`, `orderType`, `status`, `volume`, `volumeLots`, `executedVolume`, `executedVolumeLots`, `targetPrice`, `executionPrice`, `stopLoss`, `takeProfit`, `positionId`, `openTime`, `closeTime`, `expiration`, `label` and `comment`. Times are ISO 8601 in UTC with a trailing `Z`.
 
 The header line before the result restates the command as it ran: after `--count=600` it shows the count it applied, 500. Read it to confirm which filters took effect.
@@ -106,7 +108,7 @@ The header line before the result restates the command as it ran: after `--count
 
 Shell-routed. Call it as `deals --account=<account> -e -q`, with `--symbol=<name>`, `--count=<n>`, or a `--from=<date>` and `--to=<date>` range, and a symbol together with a count or a range. The limits under `orders-history` apply.
 
-The result carries `deals` and `count`; the range form adds `from` and `to`, which echo the dates given, a date without a time shown as midnight UTC (`<date>T00:00:00.000Z`). Read when each deal happened from its own `time`. Each deal can carry `orderId`, `positionId`, `symbolName`, `dealType`, `side`, `filledVolume`, `filledVolumeLots`, `executionPrice`, `entryPrice`, `pips`, `grossProfit`, `commission`, `swap`, `netProfit`, `label`, `comment` and `time`.
+The result carries `deals` and `count`; the range form adds `from` and `to`, which echo the dates given, a date without a time shown as midnight UTC (`<date>T00:00:00.000Z`), although a date-only `--to` covers that whole day, as the section `orders-history` says. Read when each deal happened from its own `time`. Each deal can carry `orderId`, `positionId`, `symbolName`, `dealType`, `side`, `filledVolume`, `filledVolumeLots`, `executionPrice`, `entryPrice`, `pips`, `grossProfit`, `commission`, `swap`, `netProfit`, `label`, `comment` and `time`.
 
 The header line restates the filters the command applied; after `--count=500` it shows the cap, 200. Read it before you trust the query you meant to send.
 

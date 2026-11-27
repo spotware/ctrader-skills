@@ -102,8 +102,8 @@ docker run --rm --mount type=bind,src=<host folder>,dst=<container folder> ghcr.
 
 Read the outcome from the exit code and from lines anywhere in the output, never from the first byte: the output can hold log lines, a line that repeats the command and the result printed twice.
 
-- **Exit 0 and a JSON array whose entries carry `"Live":`.** The CLI is ready for authenticated calls. Find the array by that key, or run `scripts/extract_result.py --file=out.txt --key=Live` from the skill's folder. Report each account's `Number` and its `Live` value (demo or live) to the user; never assume an account is a demo account without reading `Live`.
-- **Exit 81 and a line `Invalid ctid or password`.** The cTrader ID or the password is wrong. Tell the user their credentials were rejected and ask them to check the email address in `CTID` and the password in the file at `PWD-FILE`: first line only, with no extra spaces.
+- **Exit 0 and a JSON array whose entries carry `"Live":`.** The CLI is ready for authenticated calls. Find the array by that key, or run `python3 <skill folder>/scripts/extract_result.py --file=out.txt --key=Live` (`python` or `py` on Windows), as `SKILL.md` shows, from the folder that holds `out.txt`. Report each account's `Number` and its `Live` value (demo or live) to the user; never assume an account is a demo account without reading `Live`.
+- **Exit 81 and a line `Invalid ctid or password`.** The cTrader ID or the password is wrong. Tell the user their credentials were rejected and ask them to check the cTrader ID or email address in `CTID` and the password in the file at `PWD-FILE`: first line only, with no extra spaces.
 - **Exit 1 and a line `Error: Password file not found`, with a usage block.** The password-file path points at no file. Ask the user to confirm that the path in `PWD-FILE`, or the one passed to `--pwd-file`, names an existing file.
 - **Exit 1 and a missing-parameter line, such as `Error: Should be specified parameter: --pwd-file`, with a usage block.** `-e` is missing from the command line, or the variables are absent from this terminal's environment. Re-run Step 2.
 - **Exit 1 and a `Missing ... in non-interactive mode.` line on standard error.** The call reached the CLI without a cTrader ID or a password file. Pass `--ctid` and `--pwd-file` as options.
@@ -135,7 +135,7 @@ If Step 1 fails for the container image:
 
 If `CTID` is absent in Step 2, on Windows:
 
-> Set your cTrader ID (the email address you log in with) as a persistent environment variable:
+> Set your cTrader ID or email, the one you sign in with, as a persistent environment variable:
 >
 > ```text
 > setx CTID "you@example.com"
@@ -145,7 +145,7 @@ If `CTID` is absent in Step 2, on Windows:
 
 If `CTID` is absent in Step 2, on macOS or Linux:
 
-> Add your cTrader ID (the email address you log in with) to your shell profile (`~/.zshrc` or `~/.bashrc`):
+> Add your cTrader ID or email, the one you sign in with, to your shell profile (`~/.zshrc` or `~/.bashrc`):
 >
 > ```text
 > export CTID="you@example.com"
@@ -169,7 +169,7 @@ If Step 3 reports the file missing, on macOS or Linux:
 
 If Step 4 returns exit 81:
 
-> Your credentials were rejected. Check the email address in `CTID` and the password in the file at `PWD-FILE`: first line only, with no extra spaces.
+> Your credentials were rejected. Check the cTrader ID or email address in `CTID` and the password in the file at `PWD-FILE`: first line only, with no extra spaces.
 
 If Step 4 returns the missing-parameter branch after Steps 2 and 3 both looked correct:
 

@@ -4,7 +4,7 @@ The layer file of the connected server is its data file and its trading file: `r
 
 ## Pips, pip size and distances
 
-A distance in pips is a price distance divided by the symbol's pip size. Give pip distances only where the symbol's pip size is known; otherwise state distances in price.
+A distance in pips is a price distance divided by the symbol's pip size. On the Local server the pip size is `pipSize` of `get_symbol_details`; on the Remote server it is 10 to the power of minus the symbol's `pipPosition`, as `remote-data.md` describes. When the pip size cannot be read, ask the user for it or state the distance in price.
 
 `pip_math.py` works on display prices on both servers:
 
@@ -88,7 +88,7 @@ python <skill folder>/scripts/tiered_margin.py compute --volume-base-units 10000
 
 Money a server returns (balance, equity, free margin, commission, swap, profit) is already in the account currency; convert only figures computed from quotes, such as a pip value or a notional.
 
-`conversion_rate.py compute-chain --quotes` takes a map of display prices keyed by symbol name; `tiered_margin.py compute --quote-rate-usd` takes one display price. The layer file of the connected server says how to read display prices from its quotes.
+`conversion_rate.py compute-chain --quotes` takes a map of display prices keyed by symbol name, and reads the base and the quote currency of each quote from the six letters of its key; `tiered_margin.py compute --quote-rate-usd` takes one display price. The layer file of the connected server says which quotes a conversion needs and how to read display prices from them.
 
 - `compute-chain` takes `--from-asset` and `--to-asset`, and `--quotes` with each value a price or an object with `bid` and `ask`; `--side` picks `bid`, `ask` or `mid` (the default) of such an object.
 - It finds the shortest chain of quotes from one currency to the other, within `--max-hops`, and prints `rate`, `chain`, `hops` and `warnings`.

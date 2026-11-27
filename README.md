@@ -1,9 +1,8 @@
-# cTrader Skills
+# cTrader skills for AI agents
 
-> [!WARNING]
-> This project is in early development. APIs, skill content, and conventions may change.
+Agent skills for [cTrader](<https://ctrader.com/>) by [Spotware Systems Ltd](<https://www.spotware.com/>). The skills give your AI agent the knowledge it needs to drive the cTrader MCP servers and the cTrader CLI: how to tell the Remote and the Local MCP server apart, the units each server uses, the checks before and after every order-changing call, recipes for common trading tasks, and the routes, output and exit codes of the CLI.
 
-Agent skills for working with the [cTrader](<https://ctrader.com/>) platform by [Spotware Systems Ltd](<https://www.spotware.com/>). These skills give AI coding agents the operational knowledge needed to drive the cTrader MCP servers and the cTrader CLI correctly: how to tell the Remote and the Local MCP server apart, the units each server uses, the checks before and after every order-changing call, recipes for common trading tasks, and the CLI's routes, output and exit codes.
+The skills hold instructions and helper scripts only. They do not set up a server or the CLI, so connect your agent to the Remote or the Local cTrader MCP server, or install the cTrader CLI, before you use them.
 
 ## Prerequisites
 
@@ -14,53 +13,48 @@ Both skills bundle Python helper scripts. `ctrader-mcp-servers` bundles five und
   - macOS: `brew install python@3.12`
   - Debian and Ubuntu: `sudo apt install python3` installs the distribution's Python 3. Use it when `python3 --version` reports 3.11 or newer; otherwise install Python from python.org.
   - Windows: `winget install Python.Python.3.12` or download from python.org
+- **Node.js** for the `npx skills` installation below. The [skills CLI](<https://github.com/vercel-labs/skills>) states the Node.js version it requires.
 
-The AI agent invokes the bundled scripts on your behalf; you do not need to run them by hand.
+The AI agent invokes the bundled scripts on your behalf. You do not need to run them by hand.
 
-## Supported Coding Agents
+## Supported agents
 
-These skills can be installed via [`npx skills`](<https://github.com/vercel-labs/skills>) for any agent that supports the [Agent Skills specification](<https://skills.sh>), including Claude Code, Cursor, Windsurf, Codex, Cline, and OpenCode. A native Claude Code plugin installation is also provided.
+The skills follow the [Agent Skills](<https://agentskills.io/>) format. You can install them with [`npx skills`](<https://github.com/vercel-labs/skills>) in any agent it supports, including Claude Code, Cursor, Windsurf, Codex, Cline and OpenCode. Claude Code can also install them as a plugin.
 
-## Installation
+## Install
 
-### Quick Install (recommended for any agent)
+### Agents that read Agent Skills
 
-Using [`npx skills`](<https://github.com/vercel-labs/skills>):
-
-**Local** (current project):
+Install with [`npx skills`](<https://github.com/vercel-labs/skills>) for the current project:
 
 ```bash
 npx skills add spotware/ctrader-skills --skill '*' --yes
 ```
 
-**Global** (all projects):
+For all projects:
 
 ```bash
 npx skills add spotware/ctrader-skills --skill '*' --yes --global
 ```
 
-To link skills to a specific agent (e.g. Claude Code):
+To install for one agent only, name it with `--agent`, for example Claude Code:
 
 ```bash
 npx skills add spotware/ctrader-skills --agent claude-code --skill '*' --yes --global
 ```
 
----
+### Claude Code
 
-### Claude Code Plugin
-
-Install directly as a [Claude Code plugin](<https://code.claude.com/docs/en/plugins>):
+Install the skills as a [Claude Code plugin](<https://code.claude.com/docs/en/plugins>):
 
 ```bash
-/plugin marketplace add spotware/ctrader-skills
-/plugin install ctrader-skills@ctrader-skills
+claude plugin marketplace add spotware/ctrader-skills
+claude plugin install ctrader-skills@ctrader-skills
 ```
 
----
+### Install script (Claude Code and Deep Agents Code)
 
-### Install Script (Claude Code & Deep Agents CLI, optional)
-
-Alternatively, clone the repository and use the bundled install script:
+Clone the repository and run the bundled install script:
 
 ```bash
 # Install for Claude Code in current directory (default)
@@ -72,10 +66,10 @@ Alternatively, clone the repository and use the bundled install script:
 # Install for Claude Code globally
 ./install.sh --global
 
-# Install for Deep Agents CLI in a specific project directory
+# Install for Deep Agents Code in a specific project directory
 ./install.sh --deepagents ~/my-project
 
-# Install for Deep Agents CLI globally
+# Install for Deep Agents Code globally
 ./install.sh --deepagents --global
 ```
 
@@ -83,29 +77,43 @@ Alternatively, clone the repository and use the bundled install script:
 | --------------- | ----------- |
 | `DIRECTORY` | Target project directory (default: current directory, ignored with `--global`) |
 | `--claude` | Install for Claude Code (default) |
-| `--deepagents` | Install for Deep Agents CLI |
+| `--deepagents` | Install for Deep Agents Code |
 | `--global`, `-g` | Install globally instead of current directory |
 | `--force`, `-f` | Overwrite skills with same names as this package |
 | `--yes`, `-y` | Skip confirmation prompts |
 
 ## Usage
 
-After installation, run your coding agent from the directory where you installed (for local installs) or from anywhere (for global installs). The agent will discover the skills automatically and apply them whenever you work with a cTrader MCP server or the cTrader CLI.
+After the installation, start your agent in the directory where you installed the skills, or in any directory after a global installation. The agent finds the skills and applies them when you work with a cTrader MCP server or the cTrader CLI.
 
-The skills themselves do not require any API keys. For cTrader account setup, MCP server installation, and platform documentation, see the [cTrader Help Centre](<https://help.ctrader.com/>).
+For Deep Agents Code, `install.sh --deepagents --global` installs the skills for the default agent, in `~/.deepagents/agent/skills/`, so a `dcode` run finds them. After an installation in a project directory, an agent of any name that you start inside that project finds the skills when that directory is the root of a git repository, which is where Deep Agents Code looks for a project's skills.
 
-## Available Skills (2)
+The skills need no API key. The MCP servers and the cTrader CLI connect to your cTrader account as the cTrader Help Centre describes.
 
-- **ctrader-cli**: Use whenever driving the cTrader CLI (`ctrader-cli`; `ctrader-cli.exe` on Windows; also its container image) from a shell. Covers each install route, the batch and shell routes and how the choice changes the payload casing and the accepted options, environment-variable credentials that keep secrets out of the command line, how to find a command's result in its output, exit codes and messages for failure detection, the read commands with their field names, a guarded sequence for state-changing commands, and the cBot loop from `create`, `build` and `metadata` to `backtest`, `optimize`, `run` and `stop`. Includes a session preflight the agent runs before its first authenticated call, with the wording for a user whose setup needs fixing, and one helper script that finds the result in captured output.
+## Skills
+
+- **ctrader-cli**: Use whenever driving the cTrader CLI (`ctrader-cli`, or `ctrader-cli.exe` on Windows, and its container image) from a shell. Covers each install route, the batch and shell routes and how the choice changes the payload casing and the accepted options, environment-variable credentials that keep secrets out of the command line, how to find a command's result in its output, exit codes and messages for failure detection, the read commands with their field names, a guarded sequence for state-changing commands, and the cBot loop from `create`, `build` and `metadata` to `backtest`, `optimize`, `run` and `stop`. Includes a session preflight the agent runs before its first authenticated call, with the wording for a user whose setup needs fixing, and one helper script that finds the result in captured output.
 - **ctrader-mcp-servers**: Use whenever working with a cTrader MCP server, Remote or Local. Covers how to tell the two servers apart, the units each one uses, account and market data reads, placing, changing and closing trades with checks before and after every order-changing call, recipes for common trading tasks, the Local server's charts, indicators, drawings, watchlists, price alerts, workspaces and cBots, and the trading math. Bundles five helper scripts (pip math, position sizing, conversion rate, tiered margin, units encoding) that the agent invokes for precision-critical calculations.
+
+## Learn more
+
+For cTrader accounts, the cTrader MCP servers and these skills, see [cTrader MCP servers](<https://help.ctrader.com/ctrader-ai-agent-connect/>) and [Skills for cTrader MCP servers](<https://help.ctrader.com/ctrader-ai-agent-connect/skills/>) in the cTrader Help Centre.
+
+## Support
+
+The [Troubleshoot](<https://help.ctrader.com/ctrader/miscellaneous/troubleshoot/>) page of the cTrader Help Centre lists the support channels.
 
 ## Releases
 
-Each release is one commit on `main`, tagged `v<version>`, and `main` changes only at a release. [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
+Each release is one commit on `main`, tagged `v<version>`, and `main` changes only at a release. The [tags](<https://github.com/spotware/ctrader-skills/tags>) list the releases, and [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
 
 ## Contributing
 
 Issues and pull requests are welcome as proposals. See [CONTRIBUTING.md](CONTRIBUTING.md) for how Spotware publishes this repository, how to report an issue, and how to propose a change. By participating, you agree to abide by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Disclaimer
+
+The cTrader MCP servers and the cTrader CLI are tools for AI-assisted trading and do not provide financial, investment, legal or tax advice. AI-generated actions may trigger real trades and result in losses. You are solely responsible for verifying outputs, supervising strategies, securing credentials and using these skills at your own risk.
 
 ## License
 

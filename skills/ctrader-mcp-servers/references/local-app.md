@@ -4,7 +4,7 @@
 
 Chart tools act on the active chart.
 
-- `open_chart` takes `symbolName` and an optional `timeframe`, answers the new chart's `chartId`, symbol and timeframe, and makes it the active chart.
+- `open_chart` takes `symbolName` and an optional `timeframe`, answers the new chart's `chartId` and symbol with the `timeframe` the call sent, `null` when it sent none, and makes the new chart the active chart. Read the chart's timeframe from `list_charts` or `get_active_chart` after the call.
 - `list_charts` lists every open chart with its id, symbol and timeframe and shows which one is active. `focus_chart` and `close_chart` take a `chartId` from that list. Closing the active chart makes another one active.
 - `change_chart_symbol` and `change_chart_timeframe` change the active chart and answer without a `chartId`.
 - `get_chart_viewport` reads the active chart's scroll position and zoom; `scroll_chart` and `zoom_chart` change them, with the inputs their schemas give.
@@ -17,8 +17,8 @@ The indicator tools act on the active chart. To work on another chart, make it a
 
 - `listAvailableIndicators` lists the indicators that can be added; its items carry `title` and `isOverlay`.
 - `addChartIndicator` takes as `typeName` a `title` from `listAvailableIndicators`, exactly as listed (for example "Simple Moving Average"). If the add is refused, read the list and use the matching title. The add answers the new indicator's `id` and `title`.
-- `listChartIndicators` answers the active chart's symbol and timeframe and, under `indicators`, each attached indicator with `id`, `title`, `typeName`, `isRunning`, `lineOutputCount` and `barOutputCount`.
-- `getIndicatorValues` takes the `id` as `indicatorId` and an `outputIndex` below the output count; without `outputIndex` the first output is read. It answers the most recent values under `values`, with `totalBarCount`.
+- `listChartIndicators` answers the active chart's symbol and timeframe and, under `indicators`, each attached indicator with `id`, `title`, `typeName`, `isRunning`, `lineOutputCount` and `barOutputCount`. Right after `addChartIndicator`, the new indicator can list `isRunning` `false` while `getIndicatorValues` answers an empty `values` list with `totalBarCount` 0. Before reading the values of an indicator just added, read `listChartIndicators`: when its item lists `isRunning` `false`, read `listChartIndicators` once more a second later, and when the item still lists `false`, tell the user that the indicator has not started yet, report no values, and read again when the user asks. When the item lists `isRunning` `true` and `getIndicatorValues` answers an empty `values` list, read the values once more a second later; when that answer is empty too, report that the tool returned no values.
+- `getIndicatorValues` takes the `id` as `indicatorId`, an `outputIndex` below the output count and a `count` (default and cap in its description); without `outputIndex` the first output is read. It answers under `values` the last `count` values of that output, oldest first, so the last one is that of the bar still forming, with `totalBarCount` and no times. No Local tool names the line behind an `outputIndex`: when the user asks for one line of an indicator with several outputs, such as a band of Bollinger Bands or the signal line of a MACD, tell the user that the tools do not identify that line, and do not present an index as a named line.
 - `update_indicator_parameters` takes the `indicatorId` and `parameters`, an object whose keys are the indicator's parameter names. No Local tool lists the parameter names or the current values of an indicator: ask the user for each name as the indicator's settings in cTrader show it, and send it exactly as shown, letter case included. Send one parameter per call: a name the indicator does not have is refused with `<name>: unknown parameter` only when it is the only key, and a call with a known and an unknown key answers `updated`. On that refusal, show the user the text and ask for the name again. A value of the wrong form is refused with `The input string '<value>' was not in a correct format.`, and a setting chosen from a list can refuse the name of a choice this way and take a number in its place; no Local tool lists which number stands for which choice, so when the user cannot give the number, tell the user that this setting is changed in the indicator's settings in cTrader. No tool reads the parameters back, so report the answer of the call and tell the user that the tools cannot read the change back.
 - `removeChartIndicator` takes the `indicatorId`.
 
@@ -52,9 +52,11 @@ After `delete_workspace`, read `list_workspaces`; if the name is still listed, t
 
 ## Watchlists
 
-Watchlists are named; several can share a name, and `create_watchlist` accepts a name already in use. Read `get_watchlists` first; when a name occurs twice, tell the user before changing either.
+Watchlists are named, and several can share a name: `create_watchlist` and `rename_watchlist` each accept a name already in use. A `get_watchlists` item carries `name`, `key`, `isEditable` and `symbols`.
 
-`add_symbol_to_watchlist` and `remove_symbol_from_watchlist` take `watchlistName` and `symbolName`; `rename_watchlist` takes `name` and `newName`; `delete_watchlist` takes `name`. Check a symbol with `get_symbols` before adding it, and read the list again after adding or removing.
+`add_symbol_to_watchlist` and `remove_symbol_from_watchlist` take `watchlistName` and `symbolName`; `rename_watchlist` takes `name` and `newName`; `delete_watchlist` takes `name`. A call by a name that occurs more than once acts on the first list of that name in the `get_watchlists` answer. Read `get_watchlists` first; before a call by a name that occurs more than once, tell the user which list that is, by its place in the answer, its `isEditable` and its symbols. Before a `create_watchlist` or a `rename_watchlist` that would give a list a name the `get_watchlists` answer already shows, tell the user that the list will then share that name with each list that already has it. Check a symbol with `get_symbols` before adding it.
+
+Watchlist changes sent at the same moment, or one right after another, do not all take effect, although each answers its status. Send one watchlist change at a time and read `get_watchlists` after it; send the next change when the read shows this one. When the read does not show the change, read again a second later, and send the change again only when that read does not show it either.
 
 ## Price alerts
 
@@ -68,13 +70,13 @@ Watchlists are named; several can share a name, and `create_watchlist` accepts a
 
 `listPlugins` answers a list whose items carry `id`, `name`, `typeTitle`, `isEnabled`, `isRunning` and `isCrashed`; pass the `id` (a GUID) as `pluginId` to `startPlugin` and `stopPlugin`.
 
-A running cBot acts on the account the app is logged in to until it stops, so start one only when the user asks for that start. Before `startPlugin`, read whether the account is demo or live as step 1 of the rules for order-changing calls in `SKILL.md` describes, and read `listPlugins` for the cBot's item. Show the user the cBot by `name` and `typeTitle`, say whether the account is demo or live, and get a yes. After the call, read `listPlugins` again and report `isRunning` and `isCrashed` as it shows them.
+Start a cBot only when the user asks for that start. The Local tools do not show which account a started cBot trades on. The cTrader Help Centre says that a cBot instance runs until it is stopped, a local instance only while the cTrader Windows or Mac app stays open, and that stopping an instance does not close the positions it opened. Before `startPlugin`, read whether the account is demo or live as step 1 of the rules for order-changing calls in `SKILL.md` describes, and read `listPlugins` for the cBot's item. Show the user the cBot by `name` and `typeTitle`, say whether the account the app is logged in to is demo or live, that the Local tools do not show which account the cBot trades on, and that the cBot runs until it is stopped or, as a local instance, until the app closes, and get a yes. Before `stopPlugin`, tell the user that stopping the cBot does not close the positions it opened. After either call, read `listPlugins` again and report `isRunning` and `isCrashed` as it shows them. After `stopPlugin`, also read `get_positions` and report the positions still open.
 
 ## App sections, layout and panels
 
 The layout and panel tools name their parameter differently: `set_layout_mode` takes `mode`, `set_asp_tab` takes `tab`, `set_trade_watch_tab` takes `tabName`, `set_market_watch_panel` takes `panel`, and `switch_app` takes `app`; the values are in each schema. `get_layout_mode`, `get_asp_tab`, `get_trade_watch_tab`, `get_market_watch_panel` and `get_current_app` read the current setting.
 
-When `get_trade_watch_tab` answers an empty value, read `get_layout_mode` before setting a tab.
+When `get_trade_watch_tab` answers an empty value, the read names no tab. Read `get_layout_mode`: under `asp` or `chart_only` the layout shows no TradeWatch panel, so tell the user and offer `set_layout_mode` with `all` or `trade_watch`, sent only with the user's agreement, before a tab is set; under `all` or `trade_watch`, set the tab the user asked for with `set_trade_watch_tab` and read `get_trade_watch_tab` again.
 
 ## Notifications
 
@@ -98,7 +100,7 @@ Read the state before each call below. The calls of the first two rows change or
 | `apply_chart_template` | `get_active_chart`, `listChartIndicators` |
 | `delete_chart_template`, and `save_chart_template` under a name in use | `list_chart_templates` |
 | `save_workspace` under a name in use, `load_workspace`, `delete_workspace` | `list_workspaces` |
-| `delete_watchlist` | `get_watchlists` |
+| `delete_watchlist`, which acts on the first list of its name | `get_watchlists` |
 | `delete_price_alert` | `get_price_alerts` |
 | `stopPlugin` | `listPlugins` |
 

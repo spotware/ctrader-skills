@@ -22,13 +22,13 @@ This skill writes the executable as `ctrader-cli`. On Windows the executable is 
 
 ## Invocation discipline
 
-Use this template for every call except `periods` and `metadata`, adjusting only the timeout:
+Use this template for every call except `periods` and `metadata`, adjusting only the timeout as the first rule below says:
 
 ```bash
 timeout 30 ctrader-cli <command> [options] -e </dev/null 1>out.txt 2>err.txt; echo "EXIT:$?"
 ```
 
-- `timeout` bounds every call. Use 30 seconds for data commands and 240 for `build`, `backtest` and `run`.
+- `timeout` bounds every call but `run`. Use 30 seconds for data commands and 240 for `build` and `backtest`. For `optimize`, where `--help` lists it, agree the time limit with the user before the run: each pass runs a backtest, so an optimization takes longer the more passes it runs. `run` takes a `timeout` only when the user names how long the cBot is to work, because `run` blocks until the cBot exits or its process is ended, and a time limit around it ends the cBot's run when it expires.
 - `</dev/null` guarantees termination: with standard input redirected, the process never waits for a prompt.
 - Separate `1>` and `2>` captures, with a unique file name per call, keep the two streams apart. Concurrent sessions on one machine can otherwise overwrite fixed names.
 - Read `$?` directly. A pipe reports the exit status of its last stage, so piping into `head` or `grep` loses the CLI's own code.
@@ -87,7 +87,7 @@ With `-e` (long form `--environment-variables`), an environment variable supplie
 
 In the container image, pass the credentials as options after the image name, with the password file mounted: `--ctid=<ctid> --pwd-file=<path inside the container>`. `references/setup.md` shows the full command.
 
-`--ctid` identifies the user (the cTrader ID, an email address); `--account` selects the trading account. The first line of the password file is the password, and `--pwd-file` has no short alias. `--password` belongs to interactive use and has no place in a scripted call.
+`--ctid` identifies the user by the cTrader ID or email the user signs in with; `--account` selects the trading account. When batch `accounts` lists more than one account and the user has not named the account to use, ask the user which one before the first command that takes `--account`, and use that account until the user names another. The first line of the password file is the password, and `--pwd-file` has no short alias. `--password` belongs to interactive use and has no place in a scripted call.
 
 Never read or print the value of `CTID` or `PWD-FILE`; check presence and length only. A POSIX shell cannot expand a hyphenated name with `$`, so read it with `printenv`:
 
@@ -101,9 +101,11 @@ The shell banner prints the cTrader ID on standard output as `Connecting as <cti
 
 These commands change state: `order place-market`, `order place-limit`, `order place-stop`, `order place-stop-limit`, `order modify`, `order cancel`, `position close`, `position close-partial`, `position modify`, `alert create`, `alert delete`, `run` and `stop`.
 
-Send them only to an account that batch `accounts` reports as `"Live": false`, and only after the user has authorized that exact action. `-q`, `--quick`, `--quit`, `--yes`, `-y`, `all` and `--all` can each let a command run without asking, so add them only after that authorization. Never add a trailing `yes` on a launch line: builds read it differently, and it can end the command with exit 1 or confirm it.
+Send them only to an account that batch `accounts` reports as `"Live": false`, and only after the user has authorized that exact action. `-q`, `--quick`, `--quit`, `--yes`, `-y` and `--all=true` can each let a command run without asking, so add them only after that authorization. Write `--all=true` to target every order, position, alert or instance: a bare `--all` is ignored and the command fails asking for one id, as `order cancel` and `position close` do with exit 1, changing nothing. Never add a trailing `yes` or the positional `all` on a launch line: builds read them differently, and they can end the command with exit 1 or confirm it.
 
-Start `run` only when the user asks for that run. The cTrader CLI documentation asks that an AI agent not start `run` on its own: a running cBot acts on the account until it stops. Stopping an instance you started at the user's request is cleanup; any other `stop`, and `stop all`, needs the user's authorization.
+Start `run` only when the user asks for that run. The cTrader CLI documentation asks that an AI agent not start `run` on its own: a running cBot acts on the account until it stops. Stopping an instance you started at the user's request is cleanup; any other `stop`, and `stop --all=true`, needs the user's authorization.
+
+Before the run, agree with the user how long the cBot is to work and how it ends: until the user asks to stop it, started without `timeout` and stopped with `stop --instance=<id>`; for a time the user names, under a `timeout` of that length; or until the cBot stops itself, started with `--exit-on-stop` and without `timeout`. This skill pre-approves `timeout` only at 30, 60 and 240 seconds, so a call with another length can wait for the user's approval. `references/algo-lifecycle.md` describes each.
 
 Before the first order, position or alert command of a session, read `references/trading-write.md` when this session has not read it yet. It holds the steps below in full, with the order types, the volume units, the protection levels and alerts.
 
@@ -111,11 +113,11 @@ With `-q`, a command skips an option it does not recognize, without a message, a
 
 1. Run `ctrader-cli --help` before the first state-changing command of the session, and `ctrader-cli --commands` with it: `--help` prints the named options of your build and `--commands` its command words. Build the command from those words and options, spelled exactly as printed.
 2. Check each option against the options `--help` printed: name, hyphens, letter case. Correct or remove any option that listing does not hold before the command runs. For `run`, check each `--<PropertyName>=` override against the `PropertyName` values `metadata` reports instead, case kept.
-3. Put `--account=<account>` on the line, with the number whose batch `accounts` entry you have just read as `"Live": false`. Never run a state-changing command without `--account`.
+3. Put `--account=<account>` on the line, with the number of the account the user named or chose, whose batch `accounts` entry you have just read as `"Live": false`. When the user has named no account and more than one entry reads `"Live": false`, ask the user which account to use and never choose among them. Never run a state-changing command without `--account`.
 4. Read the instrument with `symbol --symbol=<name>` and the state you are about to change with `orders`, `positions` or `alerts`. Before a placement that is the list the new order or position will join, so that the read-back shows what the command added. Write down the values you expect afterwards.
-5. Before each state-changing command, tell the user what it does: for a placement the symbol, side, volume, prices and levels; for a modify, what it sets and what it keeps; for a cancel or a close, which order or position it is: an order by symbol, side and price, a position by symbol, side and entry price; for a delete or a stop, which alert or instance; for `run`, the cBot and its parameters. Do it also when the user's message already authorized the exact action and nothing is asked again. For an order with a stop loss or a take profit, say there that a level which does not apply is set to the authorized value at once.
-6. After the command, find the line that names the account (`Using account: #<account> ...`) and check that it shows the number you passed.
-7. Read the entity back on the same account and compare every value you set with what you wrote down. After `run`, read `cbots` from a second call while the run is going, and after `stop`, read `cbots` again: `references/algo-lifecycle.md` describes both.
+5. Before each state-changing command, tell the user what it does and on which account: for every command, the account by its `Number` and `Broker` in batch `accounts`; for a placement the symbol, side, volume, prices and levels; for a modify, what it sets and what it keeps; for a cancel or a close, which order or position it is: an order by symbol, side and price, a position by symbol, side and entry price; for a delete or a stop, which alert or instance; for a stop, also that the positions the cBot opened stay open; for `run`, the cBot, its parameters, and how long it works and how it ends. Do it also when the user's message already authorized the exact action and nothing is asked again. For an order with a stop loss or a take profit, say there that a level which does not apply is set to the authorized value at once.
+6. After the command, find the line that names the account (`Using account: #<account> ...` or `Using your only account: #<account> ...`) and check that it shows the number you passed. The line can be missing, as on a command that ends in invalid usage; read back all the same. Batch `run` prints no such line: check the number in its line `Login to <account>...`, or in the `--account=` value of the line that repeats the command where the build prints one, and confirm the account when the instance shows in the `cbots --account=<account>` read of step 7.
+7. Read the entity back on the same account and compare every value you set with what you wrote down. After `run`, read `cbots` from a second call while the run is going, and after `stop`, read `cbots` again: `references/algo-lifecycle.md` describes both. After `stop`, also read `positions` on the account and report the positions still open.
 8. When a stop loss or take profit the user authorized did not apply, set exactly that level at once with the matching modify command and tell the user, with the read-back before and after. Any other difference waits for the user: report it and change nothing. Never repeat the original command: it would open a second order or position.
 
 ## Exit codes

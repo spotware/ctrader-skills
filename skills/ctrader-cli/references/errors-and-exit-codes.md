@@ -8,9 +8,9 @@ Read the exit code directly, then the message. The code tells you which branch t
 | --- | --- | --- |
 | 0 | Success | Proceed, after you have found the result in the output |
 | 1 | Invalid usage, an unknown option outside quick mode, a missing required parameter, a file or project path that does not exist, a validation error, or a parse error before any route is chosen | Read the message, such as an `Error:` line or a usage block, correct the argument it names, and do not retry unchanged |
-| 81 | `Invalid ctid or password` | Check the cTrader ID and the password file; do not retry with the same credentials |
+| 81 | `Invalid ctid or password` | Check the cTrader ID or email and the password file; do not retry with the same credentials |
 | 82 | `Account cannot be found. Use accounts command to list all trading accounts linked to cTrader ID` | Read `accounts` and retry with the `Number` and `Broker` it reports |
-| 124 | The external `timeout` ended the process | Raise the timeout, or check whether the work finished before the process was ended |
+| 124 | The external `timeout` ended the process | After a data command, `build` or `backtest`: raise the timeout, or check whether the work finished before the process was ended. After `run` under a `timeout` of the time the user named: the agreed end of the run; read `cbots` and `positions`, report the instances `cbots` lists and the positions still open, and do not start `run` again. After `optimize`, where `--help` lists it, without the summary: the time limit ended the run before it finished; agree a longer limit with the user before it runs again |
 
 Exit 82 has two causes: the account number is not linked to the cTrader ID, or `--broker` names a broker the account does not belong to. `--broker=<name>` selects the broker when the same account number exists at more than one broker. `accounts --broker=<name>` with a name that matches no account returns an empty result with exit 0.
 
@@ -86,4 +86,4 @@ A wrapper shell between you and the CLI process can report a different exit code
 - **Exit 1 with a `Missing ... in non-interactive mode.` line:** add the credentials, or drop the route option where the batch form needs none.
 - **Exit 81:** check `CTID` and the password file before any retry.
 - **Exit 82:** read `accounts`, then retry with the `Number` and `Broker` it reports.
-- **Exit 124:** the external `timeout` ended the process; raise the timeout or check whether the work finished first.
+- **Exit 124:** the external `timeout` ended the process. After a data command, `build` or `backtest`, raise the timeout or check whether the work finished first. After `run` under a `timeout` of the time the user named, exit 124 is the agreed end of the run: read `cbots` and `positions`, report the instances `cbots` lists and the positions still open, and do not start `run` again, which would start the cBot a second time. After `optimize`, where `--help` lists it, exit 124 without the summary means the time limit ended the run before it finished; agree a longer limit with the user before it runs again.

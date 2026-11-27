@@ -82,10 +82,10 @@ Find the result by content, never by position:
 - When no line yields the result and the exit code is 0, a line, or the message of a log line, that is exactly `[]` is an empty result: `accounts --broker=<name>` with a name no account matches returns one.
 - `periods` prints its tokens on one line: take the line that holds `m1` and `h1` as separate words and does not start with a timestamp; when no such line exists, the tokens are the message of a log line (the text after its third `|`).
 - A message such as `Error: ...`, `Invalid ctid or password` or `Account cannot be found. ...` can stand anywhere: search for a line that starts with that text; the same text can also appear inside a log line.
-- The output can run to thousands of lines: run `scripts/extract_result.py` on the captured file, or search it (the Grep tool, or `grep -n`) and read only the lines around the match.
+- The output can run to thousands of lines: run the bundled script on the captured file, as the paragraph below shows, or search it (the Grep tool, or `grep -n`) and read only the lines around the match.
 - For backtest figures, read the `--report-json` file, which holds standard JSON; the summary on standard output marks the end of the run. A backtest can also end with a non-zero exit code and no report file, with or without a summary.
 
-`scripts/extract_result.py`, in the skill's own folder, applies this rule to a capture given with `--file=<path>` or `--text=<captured text>`, in one of three modes:
+The bundled script applies this rule to a capture. Run it with the interpreter and its path under the skill's folder, as `SKILL.md` shows: `python3 <skill folder>/scripts/extract_result.py --file=<path> --key=<name>` (`python` or `py` on Windows). It takes the capture as `--file=<path>` or as `--text=<captured text>`, in one of three modes:
 
 - `--key=<name>` takes the bare key name, as in `--key=Live`, and prints `{"result": <value>, "line": <n>}`, the value and the line of its opening bracket. When no value holds the key and a line, or the message of a log line, is exactly `[]`, it prints `{"result": [], "line": <n>}`; that is an empty result only when the command exited 0, which the script is not given.
 - `--periods` prints the tokens in the order printed, from the plain line when one exists and from the message of a log line otherwise.

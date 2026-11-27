@@ -8,7 +8,7 @@ cBots run on .NET 8. Recompile an older cBot in the latest cTrader desktop appli
 
 ## The loop
 
-Run this loop in order for a new algo: `create` to scaffold, edit the generated source, `build` to compile, `metadata` on the resulting `.algo` to discover its parameters and access rights, then `backtest` with the confirmed override options, or `run` when the user asks for that run.
+Run this loop in order for a new algo: `create` to scaffold, edit the generated source, `build` to compile, `metadata` on the `.algo` file at the `expectedAlgoFile` path of the `create` answer to discover its parameters and access rights, then `backtest` with the confirmed override options, or `run` when the user asks for that run.
 
 `metadata` takes no `-e`: it answers it with `Error: Parameter e is not allowed` and exits 1. Call it as `ctrader-cli metadata "<algo>"`; it needs no credentials. A `.algo` path that does not exist returns exit 1 with `Unable to determine destination for argument value: <path>`.
 
@@ -24,7 +24,7 @@ Use these named options on a launch line, never the positional form `create <kin
 timeout 30 ctrader-cli create --kind=cbot --name=<name> -e -q </dev/null
 ```
 
-The answer names the kind it made (`"kind"`) and the project folder; check them.
+The answer names the kind it made (`"kind"`), the project folder (`projectPath`) and, in `expectedAlgoFile`, the path of the `.algo` file that `build` writes: check the kind and the folder, and keep that path for `metadata`, `backtest` and `run`.
 
 ## build
 
@@ -35,6 +35,8 @@ timeout 240 ctrader-cli build --project-path="<csproj-path>" -e -q </dev/null
 ```
 
 `build` prints a JSON object whose `success` flag tells whether the compile passed, with `errors` (each with `file`, `line`, `column`, `code` and `text`) and `warnings`. Read `success`: a failed compile exits 0 on some builds and 1 with an `Error: Build failed ...` line on others.
+
+The `build` answer names no `.algo` file. After a build whose `success` is `true`, pass the `expectedAlgoFile` path of the `create` answer as `<algo>`; for a project that `create` did not make in this session, ask the user for the path of its `.algo` file.
 
 When the project path does not resolve, `build` prints its header and one line, `Error: Project not found: '<path>'.` or `Error: No .csproj file found under '<folder>'.`, exits 1 and prints no JSON. Called without credentials, `build` can first answer `Missing --ctid in non-interactive mode.` and stop before it checks the path; pass the credentials then.
 
@@ -100,7 +102,13 @@ In the backtest summary on standard output, a value the run cannot compute print
 
 ## optimize
 
-When `--help` lists `optimize`, it sweeps cBot parameters over a date range and writes the optimization result: `ctrader-cli optimize "<algo>" ["<cbotset>"] --params=<file> --start=<dd/MM/yyyy> --end=<dd/MM/yyyy> --data-mode=<mode> --account=<account> --symbol=<name> -e`. `--params` names a JSON file with the parameter optimization settings, an object with a `parameters` array, the shape the cTrader desktop application exports from its optimization interface. `optimize` takes `--timeframe` (`-t`), never `--period`: one value pins the main timeframe, several comma-separated values sweep it, and without the option the timeframe comes from the `--params` file. `--method=genetic|grid` (genetic by default) and `--cores=<count>` set the search; `--criteria=<Index:max|min,...>` (for example `NetProfit:max,MaxEquityDrawdownPercentages:min`) or `--fitness` (the cBot's own `GetFitness`) rank the passes; `--auto-select-best` prints only the best pass; `--skip-empty-passes` drops passes that opened no trade; `--optres=<path>` writes the result as JSON and `--passes-dir=<folder>` a report per pass. The data, commission and runtime options apply as `--help` lists them for `optimize`; `--report` and `--report-json` do not. Set fixed parameter values in the `.cbotset` file.
+When `--help` lists `optimize`, it sweeps cBot parameters over a date range and writes the optimization result: `ctrader-cli optimize "<algo>" ["<cbotset>"] --params=<file> --timeframe=<tf> --start=<dd/MM/yyyy> --end=<dd/MM/yyyy> --data-mode=<mode> --account=<account> --symbol=<name> -e`. `optimize` takes `--timeframe` (`-t`), never `--period`: one value pins the main timeframe, and several comma-separated values sweep it. The base timeframe comes from `--timeframe` or from the `--params` file, and the command stops with an error when neither gives one. A `--params` file you write with the entries below holds no timeframe, so pass `--timeframe` with it. A file exported from the cTrader desktop application already includes a timeframe parameter, so with such a file the option can be left out; when the option is passed, it takes precedence over the timeframe of the file. `--method=genetic|grid` (genetic by default) and `--cores=<count>` set the search; `--criteria=<Index:max|min,...>` (for example `NetProfit:max,MaxEquityDrawdownPercentages:min`) or `--fitness` (the cBot's own `GetFitness`) rank the passes; `--auto-select-best` prints only the best pass; `--skip-empty-passes` drops passes that opened no trade. The data, commission and runtime options apply as `--help` lists them for `optimize`; `--report` and `--report-json` do not.
+
+Where `--help` lists `optimize`, its `--params` option is required. Its file is a JSON object with a `parameters` array of one entry per parameter, each with `Name`, the name of the parameter, such as `SlowPeriods` or `MAType`, and `Optimize`, every other value written as a string: a range parameter to sweep, such as an integer or a double, takes `"Optimize": true` with `Min`, `Max` and `Step`; a value parameter to sweep, such as an enumeration or a symbol, takes `"Optimize": true` with a non-empty `Values` array; a parameter held at one value takes `Value` with `"Optimize": false`. For example: `{"parameters": [{"Name": "<name>", "Optimize": true, "Min": "<min>", "Max": "<max>", "Step": "<step>"}, {"Name": "<name>", "Value": "<value>", "Optimize": false}]}`. Before it applies the file, the CLI resets every parameter, so only the entries with `"Optimize": true` are swept: give each parameter the user wants swept such an entry, and each one the user wants held at a value a `Value` entry. A file exported from the optimization interface of the cTrader desktop application holds a `parameters` array of this shape and can be passed as it is; when the user has such a file, use the parameter names it holds.
+
+On completion, `optimize` prints a summary with the total number of passes, the elapsed time and the best pass with its statistics. `--optres=<path>`, where `--help` lists it, writes the full result as a `.optres` JSON file that lists every pass; read each pass from that file. `--passes-dir=<folder>`, where `--help` lists it, writes an HTML report file per pass into that folder; `optimize` writes no HTML report of the whole run. Without `--optres` and `--passes-dir`, only the summary is printed.
+
+Each pass runs a backtest, so an optimization takes longer the more passes it runs. Before the run, agree the time limit with the user instead of taking the 240 seconds of `backtest`, and put a `timeout` of that length before `optimize` where `--help` lists it; a length other than 30, 60 or 240 seconds can wait for the user's approval. Exit 124 without the summary means the time limit ended the run before it finished.
 
 ## run
 
@@ -108,15 +116,25 @@ Start `run` only when the user asks for that run. The cTrader CLI documentation 
 
 The form is `ctrader-cli run "<algo>" ["<cbotset>"] --account=<account> --symbol=<name> --period=<token> -e`, with `--full-access` to lift the access-rights sandbox and `--exit-on-stop` to end the process when the cBot stops itself. `--account`, `--symbol` and `--period` are required.
 
-Batch `run` blocks in the foreground, streaming output to standard output until the instance exits; pass `--exit-on-stop` when you want the process to end on its own once the algo stops itself, and otherwise plan to terminate it externally (the external `timeout` wrapper, or a signal) rather than expecting it to return control to you.
+Batch `run` streams the cBot's output to standard output and blocks until the cBot exits or its process is ended. A time limit around `run` ends that process when it expires, and the cBot's run with it, so never give `run` the 240 seconds that `build` and `backtest` take.
+
+Before the run, agree with the user how long the cBot is to work and how it ends, and name it when you tell the user what the command does:
+
+- Until the user asks to stop it: start `run` without `timeout`, and when the user asks, stop it with `stop --instance=<id>`, the id taken from `cbots` (see Running instances).
+- For a time the user names: put a `timeout` of that length before `run`. This skill pre-approves `timeout` only at 30, 60 and 240 seconds, so a call with another length can wait for the user's approval.
+- Until the cBot stops itself: pass `--exit-on-stop` and start `run` without `timeout`; the process ends when the cBot stops.
+
+When the process ends, by its time limit or through `--exit-on-stop`, read `cbots` and report the instances it lists. Then read `positions` and report the positions still open, as after a `stop` (see Running instances).
 
 Start `run` so that the shell stays free for other calls, such as in the background with its standard output and standard error captured to files. While the run is going, read `cbots` from a second call: that read is the read-back of `run`. Report the instances `cbots` lists, and take the id for `stop --instance=<id>` from that list.
+
+Batch `run` prints no `Using account` line. Check the account in its line `Login to <account>...`, or in the `--account=` value of the line that repeats the command where the build prints one, and confirm it when the instance shows in the `cbots` read of that account.
 
 `--reconnect-timeout=<sec>`, where `--help` lists it, ends `run` with a non-zero exit code when the trading account session cannot be restored within that many seconds; without it, `run` keeps reconnecting.
 
 ## Running instances
 
-`cbots` lists the cBot instances currently running on the account; `stop --instance=<id>` stops one instance, by an id from that list. Both run through the command shell, so call them with `-q` like every shell-routed command. To stop every instance, `--commands` lists the shell form `stop all` and `--help` the option `--all`; both change state. Stopping an instance you started at the user's request is cleanup; any other `stop`, and `stop all`, needs the user's authorization.
+`cbots` lists the cBot instances currently running on the account; `stop --instance=<id>` stops one instance, by an id from that list. Both run through the command shell, so call them with `-q` like every shell-routed command. To stop every instance, write `stop --all=true` on a launch line: `--help` lists the option `--all`, and a bare `--all` is ignored and the command fails asking for one id. `--commands` lists the shell form `stop all`, which belongs inside the command shell. Both change state. Stopping an instance you started at the user's request is cleanup; any other `stop`, and `stop --all=true`, needs the user's authorization. The cTrader Help Centre says that stopping a cBot instance does not automatically close any open positions: the trades the cBot opened remain active. Before any `stop`, cleanup included, tell the user that the positions the cBot opened stay open, and after it read `positions` on the account and report the positions still open.
 
 ```bash
 timeout 30 ctrader-cli cbots --account=<account> -e -q </dev/null
